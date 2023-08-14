@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"strconv"
 
-	"github.com/daeuniverse/dae-outbound/dialer"
+	"github.com/daeuniverse/outbound/dialer"
 	"github.com/daeuniverse/softwind/netproxy"
 	"github.com/daeuniverse/softwind/protocol/socks5"
 )

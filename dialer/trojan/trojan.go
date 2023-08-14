@@ -7,11 +7,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/daeuniverse/dae-outbound/transport/tls"
+	"github.com/daeuniverse/outbound/transport/tls"
 
-	"github.com/daeuniverse/dae-outbound/dialer"
-	"github.com/daeuniverse/dae-outbound/transport/ws"
 	"github.com/daeuniverse/dae/common"
+	"github.com/daeuniverse/outbound/dialer"
+	"github.com/daeuniverse/outbound/transport/ws"
 	"github.com/daeuniverse/softwind/netproxy"
 	"github.com/daeuniverse/softwind/protocol"
 	"github.com/daeuniverse/softwind/transport/grpc"

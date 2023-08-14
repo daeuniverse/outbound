@@ -1,7 +1,7 @@
 package ws
 
 import (
-	"github.com/daeuniverse/dae-outbound/dialer"
+	"github.com/daeuniverse/outbound/dialer"
 )
 
 func init() {

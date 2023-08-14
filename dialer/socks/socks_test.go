@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/daeuniverse/dae-outbound/dialer"
 	"github.com/daeuniverse/dae/common/netutils"
+	"github.com/daeuniverse/outbound/dialer"
 	"github.com/daeuniverse/softwind/protocol/direct"
 	dnsmessage "github.com/miekg/dns"
 )

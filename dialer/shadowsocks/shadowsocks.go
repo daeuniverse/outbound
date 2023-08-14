@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/daeuniverse/dae-outbound/dialer"
-	"github.com/daeuniverse/dae-outbound/transport/simpleobfs"
 	"github.com/daeuniverse/dae/common"
+	"github.com/daeuniverse/outbound/dialer"
+	"github.com/daeuniverse/outbound/transport/simpleobfs"
 	"github.com/daeuniverse/softwind/netproxy"
 	"github.com/daeuniverse/softwind/protocol"
 	"github.com/daeuniverse/softwind/protocol/shadowsocks"

@@ -1,6 +1,6 @@
 package tls
 
-import "github.com/daeuniverse/dae-outbound/dialer"
+import "github.com/daeuniverse/outbound/dialer"
 
 func init() {
 	dialer.FromLinkRegister("tls", NewTls)
