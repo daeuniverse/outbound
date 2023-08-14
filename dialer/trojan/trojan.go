@@ -9,7 +9,7 @@ import (
 
 	"github.com/daeuniverse/outbound/transport/tls"
 
-	"github.com/daeuniverse/dae/common"
+	"github.com/daeuniverse/outbound/common"
 	"github.com/daeuniverse/outbound/dialer"
 	"github.com/daeuniverse/outbound/transport/ws"
 	"github.com/daeuniverse/softwind/netproxy"

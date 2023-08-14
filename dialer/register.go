@@ -10,7 +10,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/daeuniverse/dae/common"
+	"github.com/daeuniverse/outbound/common"
 	"github.com/daeuniverse/softwind/netproxy"
 )
 
