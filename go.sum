@@ -1,7 +1,7 @@
 github.com/andybalholm/brotli v1.0.5 h1:8uQZIdzKmjc/iuPu7O2ioW48L81FgatrcpfFmiq/cCs=
 github.com/andybalholm/brotli v1.0.5/go.mod h1:fO7iG3H7G2nSZ7m0zPUDn85XEX2GTukHGRSepvi9Eig=
-github.com/daeuniverse/softwind v0.0.0-20230814143152-387d19f00f24 h1:dS/EZvvq1BUoFWWNtM+T5GHjky0UbwIvGyA0pkkBIh4=
-github.com/daeuniverse/softwind v0.0.0-20230814143152-387d19f00f24/go.mod h1:fL1IT5Qi5oZsrZwq38b4HYQH5AFe8XofpuukHQByTbM=
+github.com/daeuniverse/softwind v0.0.0-20230819114735-f9ac67136333 h1:GMafiJkPDt7dN+0lSolVJn1Ic+OW4kf2gS6kQHoeq2M=
+github.com/daeuniverse/softwind v0.0.0-20230819114735-f9ac67136333/go.mod h1:CI7dM8EJdSqnKFu2BAcztIHPqDZSDMNeIQljw5gtGmA=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
