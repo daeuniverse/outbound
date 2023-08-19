@@ -12,7 +12,6 @@ import (
 	"github.com/daeuniverse/outbound/dialer"
 	"github.com/daeuniverse/softwind/netproxy"
 	"github.com/daeuniverse/softwind/protocol"
-	"github.com/daeuniverse/softwind/protocol/shadowsocks_stream"
 	"github.com/daeuniverse/softwind/transport/shadowsocksr/obfs"
 	"github.com/daeuniverse/softwind/transport/shadowsocksr/proto"
 )
@@ -55,7 +54,7 @@ func (s *ShadowsocksR) Dialer(option *dialer.ExtraOption, nextDialer netproxy.Di
 		return nil, nil, err
 	}
 	d = obfsDialer
-	d, err = shadowsocks_stream.NewDialer(d, protocol.Header{
+	d, err = protocol.NewDialer("shadowsocks_stream", d, protocol.Header{
 		ProxyAddress: net.JoinHostPort(s.Server, strconv.Itoa(s.Port)),
 		Cipher:       s.Cipher,
 		Password:     s.Password,
