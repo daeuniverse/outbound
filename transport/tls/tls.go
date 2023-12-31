@@ -20,6 +20,7 @@ type Tls struct {
 	skipVerify      bool
 	tlsImplentation string
 	utlsImitate     string
+	passthroughUdp  bool
 
 	tlsConfig *tls.Config
 }
@@ -49,6 +50,7 @@ func NewTls(option *dialer.ExtraOption, nextDialer netproxy.Dialer, link string)
 	if t.serverName == "" {
 		t.serverName = u.Hostname()
 	}
+	t.passthroughUdp, _ = strconv.ParseBool(u.Query().Get("passthroughUdp"))
 
 	// skipVerify
 	allowInsecure, _ := strconv.ParseBool(u.Query().Get("allowInsecure"))
@@ -124,6 +126,9 @@ func (s *Tls) Dial(network, addr string) (c netproxy.Conn, err error) {
 		}
 		return tlsConn, err
 	case "udp":
+		if s.passthroughUdp {
+			return s.dialer.Dial(network, addr)
+		}
 		return nil, fmt.Errorf("%w: tls+udp", netproxy.UnsupportedTunnelTypeError)
 	default:
 		return nil, fmt.Errorf("%w: %v", netproxy.UnsupportedTunnelTypeError, network)

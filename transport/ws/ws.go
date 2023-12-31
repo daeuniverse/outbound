@@ -20,6 +20,7 @@ type Ws struct {
 	wsAddr          string
 	header          http.Header
 	tlsClientConfig *tls.Config
+	passthroughUdp  bool
 }
 
 // NewWs returns a Ws infra.
@@ -40,6 +41,8 @@ func NewWs(option *dialer.ExtraOption, nextDialer netproxy.Dialer, link string) 
 	}
 	t.header = http.Header{}
 	t.header.Set("Host", host)
+
+	t.passthroughUdp, _ = strconv.ParseBool(u.Query().Get("passthroughUdp"))
 
 	wsUrl := url.URL{
 		Scheme: u.Scheme,
@@ -101,6 +104,9 @@ func (s *Ws) Dial(network, addr string) (c netproxy.Conn, err error) {
 		}
 		return newConn(rc), err
 	case "udp":
+		if s.passthroughUdp {
+			return s.dialer.Dial(network, addr)
+		}
 		return nil, fmt.Errorf("%w: ws+udp", netproxy.UnsupportedTunnelTypeError)
 	default:
 		return nil, fmt.Errorf("%w: %v", netproxy.UnsupportedTunnelTypeError, network)

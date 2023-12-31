@@ -10,7 +10,10 @@ import (
 
 	"github.com/daeuniverse/outbound/common"
 	"github.com/daeuniverse/outbound/dialer"
+	"github.com/daeuniverse/outbound/transport/mux"
 	"github.com/daeuniverse/outbound/transport/simpleobfs"
+	"github.com/daeuniverse/outbound/transport/tls"
+	"github.com/daeuniverse/outbound/transport/ws"
 	"github.com/daeuniverse/softwind/netproxy"
 	"github.com/daeuniverse/softwind/protocol"
 	"github.com/daeuniverse/softwind/protocol/shadowsocks"
@@ -70,6 +73,45 @@ func (s *Shadowsocks) Dialer(option *dialer.ExtraOption, nextDialer netproxy.Dia
 		d, _, err = simpleobfs.NewSimpleObfs(option, d, uSimpleObfs.String())
 		if err != nil {
 			return nil, nil, err
+		}
+	case "v2ray-plugin":
+		// https://github.com/teddysun/v2ray-plugin
+		switch s.Plugin.Opts.Obfs {
+		case "":
+			if s.Plugin.Opts.Tls == "tls" {
+				u := url.URL{
+					Scheme: option.TlsImplementation,
+					Host:   net.JoinHostPort(s.Server, strconv.Itoa(s.Port)),
+					RawQuery: url.Values{
+						"sni":            []string{s.Plugin.Opts.Host},
+						"allowInsecure":  []string{common.BoolToString(option.AllowInsecure)},
+						"utlsImitate":    []string{option.UtlsImitate},
+						"passthroughUdp": []string{"1"},
+					}.Encode(),
+				}
+				if d, _, err = tls.NewTls(option, d, u.String()); err != nil {
+					return nil, nil, err
+				}
+			}
+			u := url.URL{
+				Scheme: "ws",
+				Host:   net.JoinHostPort(s.Server, strconv.Itoa(s.Port)),
+				RawQuery: url.Values{
+					"host":           []string{s.Plugin.Opts.Host},
+					"path":           []string{"/"},
+					"passthroughUdp": []string{"1"},
+				}.Encode(),
+			}
+			if d, _, err = ws.NewWs(option, d, u.String()); err != nil {
+				return nil, nil, err
+			}
+			d = &mux.Mux{
+				NextDialer:     d,
+				Addr:           net.JoinHostPort(s.Server, strconv.Itoa(s.Port)),
+				PassthroughUdp: true,
+			}
+		default:
+			return nil, nil, fmt.Errorf("unsupported mode %v of plugin %v", s.Plugin.Opts.Obfs, s.Plugin.Name)
 		}
 	default:
 	}
@@ -175,8 +217,8 @@ type Sip003 struct {
 	Opts Sip003Opts `json:"opts"`
 }
 type Sip003Opts struct {
-	Tls  string `json:"tls"` // for v2ray-plugin
-	Obfs string `json:"obfs"`
+	Tls  string `json:"tls"`  // for v2ray-plugin
+	Obfs string `json:"obfs"` // mode for v2ray-plugin
 	Host string `json:"host"`
 	Path string `json:"uri"`
 }
