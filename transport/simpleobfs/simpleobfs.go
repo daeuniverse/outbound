@@ -90,7 +90,7 @@ func (s *SimpleObfs) Dial(network, addr string) (c netproxy.Conn, err error) {
 		}
 		return c, err
 	case "udp":
-		return nil, fmt.Errorf("%w: simpleobfs+udp", netproxy.UnsupportedTunnelTypeError)
+		return s.dialer.Dial(network, s.addr)
 	default:
 		return nil, fmt.Errorf("%w: %v", netproxy.UnsupportedTunnelTypeError, network)
 	}
