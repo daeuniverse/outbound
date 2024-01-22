@@ -3,7 +3,7 @@ module github.com/daeuniverse/outbound
 go 1.21.0
 
 require (
-	github.com/daeuniverse/softwind v0.0.0-20231230065827-eed67f20d2c1
+	github.com/daeuniverse/softwind v0.0.0-20240121143049-bf63826c5835
 	github.com/gorilla/websocket v1.5.0
 	github.com/json-iterator/go v1.1.12
 	github.com/refraction-networking/utls v1.4.3
