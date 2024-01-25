@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/daeuniverse/softwind/transport/httpupgrade"
+
 	"github.com/daeuniverse/outbound/transport/tls"
 
 	"github.com/daeuniverse/outbound/common"
@@ -87,6 +89,19 @@ func (s *Trojan) Dialer(option *dialer.ExtraOption, nextDialer netproxy.Dialer) 
 			ServiceName:   serviceName,
 			ServerName:    s.Sni,
 			AllowInsecure: s.AllowInsecure || option.AllowInsecure,
+		}
+	case "httpupgrade":
+		u := url.URL{
+			Scheme: "http",
+			Host:   net.JoinHostPort(s.Server, strconv.Itoa(s.Port)),
+			RawQuery: url.Values{
+				"host": []string{s.Host},
+				"path": []string{s.Path},
+			}.Encode(),
+		}
+
+		if d, err = httpupgrade.NewDialer(u.String(), d); err != nil {
+			return nil, nil, err
 		}
 	}
 	if strings.HasPrefix(s.Encryption, "ss;") {
