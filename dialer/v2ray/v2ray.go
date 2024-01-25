@@ -3,7 +3,6 @@ package v2ray
 import (
 	"encoding/base64"
 	"fmt"
-	"github.com/daeuniverse/softwind/transport/httpupgrade"
 	"net"
 	"net/url"
 	"regexp"
@@ -18,6 +17,7 @@ import (
 	"github.com/daeuniverse/softwind/protocol/direct"
 	"github.com/daeuniverse/softwind/protocol/http"
 	"github.com/daeuniverse/softwind/transport/grpc"
+	"github.com/daeuniverse/softwind/transport/httpupgrade"
 	"github.com/daeuniverse/softwind/transport/meek"
 	jsoniter "github.com/json-iterator/go"
 )

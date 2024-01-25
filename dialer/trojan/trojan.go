@@ -7,8 +7,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/daeuniverse/softwind/transport/httpupgrade"
-
 	"github.com/daeuniverse/outbound/transport/tls"
 
 	"github.com/daeuniverse/outbound/common"
@@ -17,6 +15,7 @@ import (
 	"github.com/daeuniverse/softwind/netproxy"
 	"github.com/daeuniverse/softwind/protocol"
 	"github.com/daeuniverse/softwind/transport/grpc"
+	"github.com/daeuniverse/softwind/transport/httpupgrade"
 )
 
 func init() {
