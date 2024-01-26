@@ -17,6 +17,7 @@ import (
 	"github.com/daeuniverse/softwind/protocol/direct"
 	"github.com/daeuniverse/softwind/protocol/http"
 	"github.com/daeuniverse/softwind/transport/grpc"
+	"github.com/daeuniverse/softwind/transport/httpupgrade"
 	"github.com/daeuniverse/softwind/transport/meek"
 	jsoniter "github.com/json-iterator/go"
 )
@@ -187,6 +188,25 @@ func (s *V2Ray) Dialer(option *dialer.ExtraOption, nextDialer netproxy.Dialer) (
 		if err != nil {
 			return nil, nil, err
 		}
+	case "httpupgrade":
+		scheme := "http"
+		if s.TLS == "tls" {
+			scheme = "https"
+		}
+		u := url.URL{
+			Scheme: scheme,
+			Host:   net.JoinHostPort(s.Add, s.Port),
+			RawQuery: url.Values{
+				"host":          []string{s.Host},
+				"path":          []string{s.Path},
+				"allowInsecure": []string{common.BoolToString(s.AllowInsecure || option.AllowInsecure)},
+				"serverName":    []string{s.SNI},
+			}.Encode(),
+		}
+		d, err = httpupgrade.NewDialer(u.String(), d)
+		if err != nil {
+			return nil, nil, err
+		}
 	default:
 		return nil, nil, fmt.Errorf("%w: network: %v", dialer.UnexpectedFieldErr, s.Net)
 	}
@@ -341,7 +361,7 @@ func (s *V2Ray) ExportToURL() string {
 		common.SetValue(&query, "type", s.Net)
 		common.SetValue(&query, "security", s.TLS)
 		switch s.Net {
-		case "websocket", "ws", "http", "h2":
+		case "websocket", "ws", "http", "h2", "httpupgrade":
 			common.SetValue(&query, "path", s.Path)
 			common.SetValue(&query, "host", s.Host)
 		case "mkcp", "kcp":
