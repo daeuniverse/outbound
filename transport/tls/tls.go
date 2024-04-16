@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/daeuniverse/outbound/dialer"
-	"github.com/daeuniverse/softwind/netproxy"
+	"github.com/daeuniverse/outbound/netproxy"
 	utls "github.com/refraction-networking/utls"
 )
 
@@ -106,7 +106,7 @@ func (s *Tls) Dial(network, addr string) (c netproxy.Conn, err error) {
 			}, s.tlsConfig)
 
 		case "utls":
-			clientHelloID, err := nameToUtlsClientHelloID(s.utlsImitate)
+			clientHelloID, err := NameToUtlsClientHelloID(s.utlsImitate)
 			if err != nil {
 				return nil, err
 			}

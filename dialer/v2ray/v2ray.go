@@ -10,15 +10,15 @@ import (
 
 	"github.com/daeuniverse/outbound/common"
 	"github.com/daeuniverse/outbound/dialer"
+	"github.com/daeuniverse/outbound/netproxy"
+	"github.com/daeuniverse/outbound/protocol"
+	"github.com/daeuniverse/outbound/protocol/direct"
+	"github.com/daeuniverse/outbound/protocol/http"
+	"github.com/daeuniverse/outbound/transport/grpc"
+	"github.com/daeuniverse/outbound/transport/httpupgrade"
+	"github.com/daeuniverse/outbound/transport/meek"
 	"github.com/daeuniverse/outbound/transport/tls"
 	"github.com/daeuniverse/outbound/transport/ws"
-	"github.com/daeuniverse/softwind/netproxy"
-	"github.com/daeuniverse/softwind/protocol"
-	"github.com/daeuniverse/softwind/protocol/direct"
-	"github.com/daeuniverse/softwind/protocol/http"
-	"github.com/daeuniverse/softwind/transport/grpc"
-	"github.com/daeuniverse/softwind/transport/httpupgrade"
-	"github.com/daeuniverse/softwind/transport/meek"
 	jsoniter "github.com/json-iterator/go"
 )
 

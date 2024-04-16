@@ -3,7 +3,7 @@ package mux
 import (
 	"fmt"
 
-	"github.com/daeuniverse/softwind/netproxy"
+	"github.com/daeuniverse/outbound/netproxy"
 )
 
 // Mux is a base Mux struct

@@ -54,7 +54,7 @@ var clientHelloIDMap = map[string]*utls.ClientHelloID{
 	"qq_11_1":           &utls.HelloQQ_11_1,
 }
 
-func nameToUtlsClientHelloID(name string) (*utls.ClientHelloID, error) {
+func NameToUtlsClientHelloID(name string) (*utls.ClientHelloID, error) {
 	clientHelloID, ok := clientHelloIDMap[name]
 	if !ok {
 		return nil, fmt.Errorf("unknown uTLS Client Hello ID: %s", name)

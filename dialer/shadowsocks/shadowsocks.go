@@ -10,13 +10,13 @@ import (
 
 	"github.com/daeuniverse/outbound/common"
 	"github.com/daeuniverse/outbound/dialer"
+	"github.com/daeuniverse/outbound/netproxy"
+	"github.com/daeuniverse/outbound/protocol"
+	"github.com/daeuniverse/outbound/protocol/shadowsocks"
 	"github.com/daeuniverse/outbound/transport/mux"
 	"github.com/daeuniverse/outbound/transport/simpleobfs"
 	"github.com/daeuniverse/outbound/transport/tls"
 	"github.com/daeuniverse/outbound/transport/ws"
-	"github.com/daeuniverse/softwind/netproxy"
-	"github.com/daeuniverse/softwind/protocol"
-	"github.com/daeuniverse/softwind/protocol/shadowsocks"
 )
 
 func init() {
