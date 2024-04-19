@@ -91,10 +91,9 @@ func (s *Juicity) Dialer(option *dialer.ExtraOption, nextDialer netproxy.Dialer)
 }
 
 func ParseJuicityURL(u string) (data *Juicity, err error) {
-	//trojan://password@server:port#escape(remarks)
 	t, err := url.Parse(u)
 	if err != nil {
-		err = fmt.Errorf("invalid trojan format")
+		err = fmt.Errorf("invalid juicity format")
 		return
 	}
 	allowInsecure, _ := strconv.ParseBool(t.Query().Get("allowInsecure"))
