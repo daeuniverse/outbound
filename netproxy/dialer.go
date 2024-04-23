@@ -19,8 +19,10 @@ type ContextDialerConverter struct {
 	Dialer
 }
 
-func DialContext(ctx context.Context, network, addr string, dial func(network, addr string) (c Conn, err error)) (c Conn, err error) {
+func DialContext(ctx context.Context, network, addr string, dial func(network, addr string) (Conn, error)) (Conn, error) {
 	var done = make(chan struct{})
+	var c Conn
+	var err error
 	go func() {
 		c, err = dial(network, addr)
 		select {
