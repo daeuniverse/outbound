@@ -100,9 +100,9 @@ func (rc *reconnectableClientImpl) TCP(addr string) (netproxy.Conn, error) {
 	}
 }
 
-func (rc *reconnectableClientImpl) UDP() (netproxy.Conn, error) {
+func (rc *reconnectableClientImpl) UDP(addr string) (netproxy.Conn, error) {
 	if c, err := rc.clientDo(func(client Client) (interface{}, error) {
-		return client.UDP()
+		return client.UDP(addr)
 	}); err != nil {
 		return nil, err
 	} else {

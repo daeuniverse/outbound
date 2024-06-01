@@ -25,7 +25,7 @@ const (
 
 type Client interface {
 	TCP(addr string) (netproxy.Conn, error)
-	UDP() (netproxy.Conn, error)
+	UDP(addr string) (netproxy.Conn, error)
 	Close() error
 }
 
@@ -203,11 +203,11 @@ func (c *clientImpl) TCP(addr string) (netproxy.Conn, error) {
 	}, nil
 }
 
-func (c *clientImpl) UDP() (netproxy.Conn, error) {
+func (c *clientImpl) UDP(addr string) (netproxy.Conn, error) {
 	if c.udpSM == nil {
 		return nil, coreErrs.DialError{Message: "UDP not enabled"}
 	}
-	return c.udpSM.NewUDP()
+	return c.udpSM.NewUDP(addr)
 }
 
 func (c *clientImpl) Close() error {

@@ -35,23 +35,65 @@ type udpConn struct {
 
 	muTimer sync.Mutex
 	timer   *time.Timer
+	target  string
 }
 
 func (u *udpConn) Read(b []byte) (n int, err error) {
+	msg, _, err := u.ReadFrom(b)
+	return msg, err
+}
+
+func (u *udpConn) Write(b []byte) (n int, err error) {
+	return u.WriteTo(b, u.target)
+}
+
+func (u *udpConn) ReadFrom(p []byte) (n int, addr string, err error) {
 	for {
 		msg := <-u.ReceiveCh
 		if msg == nil {
 			// Closed
-			return 0, io.EOF
+			return 0, "", io.EOF
 		}
 		dfMsg := u.D.Feed(msg)
 		if dfMsg == nil {
 			// Incomplete message, wait for more
 			continue
 		}
-		n = copy(b, dfMsg.Data)
-		return n, nil
+		return copy(p, dfMsg.Data), dfMsg.Addr, nil
 	}
+}
+
+func (u *udpConn) WriteTo(b []byte, addr string) (n int, err error) {
+	// Try no frag first
+	msg := &protocol.UDPMessage{
+		SessionID: u.ID,
+		PacketID:  0,
+		FragID:    0,
+		FragCount: 1,
+		Addr:      addr,
+		Data:      b,
+	}
+	err = u.SendFunc(u.SendBuf, msg)
+	var errTooLarge *quic.DatagramTooLargeError
+	if errors.As(err, &errTooLarge) {
+		// Message too large, try fragmentation
+		msg.PacketID = uint16(rand.Intn(0xFFFF)) + 1
+		fMsgs := frag.FragUDPMessage(msg, int(errTooLarge.MaxDataLen))
+		for _, fMsg := range fMsgs {
+			err := u.SendFunc(u.SendBuf, &fMsg)
+			if err != nil {
+				return 0, err
+			}
+		}
+		return len(b), nil
+	} else {
+		return len(b), err
+	}
+}
+
+func (u *udpConn) Close() error {
+	u.CloseFunc()
+	return nil
 }
 
 func (u *udpConn) SetDeadline(t time.Time) error {
@@ -79,39 +121,6 @@ func (u *udpConn) SetReadDeadline(t time.Time) error {
 func (u *udpConn) SetWriteDeadline(t time.Time) error {
 	// FIXME: Single direction.
 	return u.SetDeadline(t)
-}
-
-func (u *udpConn) Write(b []byte) (n int, err error) {
-	// Try no frag first
-	msg := &protocol.UDPMessage{
-		SessionID: u.ID,
-		PacketID:  0,
-		FragID:    0,
-		FragCount: 1,
-		Addr:      "",
-		Data:      b,
-	}
-	err = u.SendFunc(u.SendBuf, msg)
-	var errTooLarge *quic.DatagramTooLargeError
-	if errors.As(err, &errTooLarge) {
-		// Message too large, try fragmentation
-		msg.PacketID = uint16(rand.Intn(0xFFFF)) + 1
-		fMsgs := frag.FragUDPMessage(msg, int(errTooLarge.MaxDataLen))
-		for _, fMsg := range fMsgs {
-			err := u.SendFunc(u.SendBuf, &fMsg)
-			if err != nil {
-				return 0, err
-			}
-		}
-		return len(b), nil
-	} else {
-		return len(b), err
-	}
-}
-
-func (u *udpConn) Close() error {
-	u.CloseFunc()
-	return nil
 }
 
 type udpSessionManager struct {
@@ -174,7 +183,7 @@ func (m *udpSessionManager) feed(msg *protocol.UDPMessage) {
 }
 
 // NewUDP creates a new UDP session.
-func (m *udpSessionManager) NewUDP() (netproxy.Conn, error) {
+func (m *udpSessionManager) NewUDP(addr string) (netproxy.Conn, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -193,6 +202,7 @@ func (m *udpSessionManager) NewUDP() (netproxy.Conn, error) {
 		SendFunc:  m.io.SendMessage,
 
 		muTimer: sync.Mutex{},
+		target:  addr,
 	}
 	conn.CloseFunc = func() {
 		m.mutex.Lock()
