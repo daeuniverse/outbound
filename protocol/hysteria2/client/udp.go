@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"math/rand"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -47,19 +48,23 @@ func (u *udpConn) Write(b []byte) (n int, err error) {
 	return u.WriteTo(b, u.target)
 }
 
-func (u *udpConn) ReadFrom(p []byte) (n int, addr string, err error) {
+func (u *udpConn) ReadFrom(p []byte) (n int, addr netip.AddrPort, err error) {
 	for {
 		msg := <-u.ReceiveCh
 		if msg == nil {
 			// Closed
-			return 0, "", io.EOF
+			return 0, netip.AddrPort{}, io.EOF
 		}
 		dfMsg := u.D.Feed(msg)
 		if dfMsg == nil {
 			// Incomplete message, wait for more
 			continue
 		}
-		return copy(p, dfMsg.Data), dfMsg.Addr, nil
+		netipAddr, err := netip.ParseAddrPort(dfMsg.Addr)
+		if err != nil {
+			return 0, netipAddr, err
+		}
+		return copy(p, dfMsg.Data), netipAddr, nil
 	}
 }
 
