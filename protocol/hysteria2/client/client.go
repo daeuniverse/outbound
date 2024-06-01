@@ -51,7 +51,7 @@ func NewClient(config *Config) (Client, *HandshakeInfo, error) {
 type clientImpl struct {
 	config *Config
 
-	pktConn netproxy.PacketConn
+	pktConn net.PacketConn
 	conn    quic.Connection
 
 	udpSM *udpSessionManager
@@ -143,7 +143,7 @@ func (c *clientImpl) connect() (*HandshakeInfo, error) {
 	}
 	_ = resp.Body.Close()
 
-	c.pktConn = pktConn.(netproxy.PacketConn)
+	c.pktConn = pktConn
 	c.conn = conn
 	if authResp.UDPEnabled {
 		c.udpSM = newUDPSessionManager(&udpIOImpl{Conn: conn})
