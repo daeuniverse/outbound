@@ -32,6 +32,9 @@ type udpConn struct {
 	SendFunc  func([]byte, *protocol.UDPMessage) error
 	CloseFunc func()
 	Closed    bool
+
+	muTimer sync.Mutex
+	timer   *time.Timer
 }
 
 func (u *udpConn) Read(b []byte) (n int, err error) {
@@ -52,18 +55,30 @@ func (u *udpConn) Read(b []byte) (n int, err error) {
 }
 
 func (u *udpConn) SetDeadline(t time.Time) error {
-	// TODO: Implement
+	u.muTimer.Lock()
+	defer u.muTimer.Unlock()
+	dur := time.Until(t)
+	if u.timer != nil {
+		u.timer.Reset(dur)
+	} else {
+		u.timer = time.AfterFunc(dur, func() {
+			u.muTimer.Lock()
+			defer u.muTimer.Unlock()
+			u.Close()
+			u.timer = nil
+		})
+	}
 	return nil
 }
 
 func (u *udpConn) SetReadDeadline(t time.Time) error {
-	// TODO: Implement
-	return nil
+	// FIXME: Single direction.
+	return u.SetDeadline(t)
 }
 
 func (u *udpConn) SetWriteDeadline(t time.Time) error {
-	// TODO: Implement
-	return nil
+	// FIXME: Single direction.
+	return u.SetDeadline(t)
 }
 
 func (u *udpConn) Write(b []byte) (n int, err error) {
@@ -176,6 +191,8 @@ func (m *udpSessionManager) NewUDP() (netproxy.Conn, error) {
 		ReceiveCh: make(chan *protocol.UDPMessage, udpMessageChanSize),
 		SendBuf:   make([]byte, protocol.MaxUDPSize),
 		SendFunc:  m.io.SendMessage,
+
+		muTimer: sync.Mutex{},
 	}
 	conn.CloseFunc = func() {
 		m.mutex.Lock()
