@@ -5,9 +5,11 @@ import (
 	"io"
 	"math/rand"
 	"sync"
+	"time"
 
 	"github.com/daeuniverse/quic-go"
 
+	"github.com/daeuniverse/outbound/netproxy"
 	coreErrs "github.com/daeuniverse/outbound/protocol/hysteria2/errors"
 	"github.com/daeuniverse/outbound/protocol/hysteria2/internal/frag"
 	"github.com/daeuniverse/outbound/protocol/hysteria2/internal/protocol"
@@ -32,34 +34,49 @@ type udpConn struct {
 	Closed    bool
 }
 
-func (u *udpConn) Receive() ([]byte, string, error) {
+func (u *udpConn) Read(b []byte) (n int, err error) {
 	for {
 		msg := <-u.ReceiveCh
 		if msg == nil {
 			// Closed
-			return nil, "", io.EOF
+			return 0, io.EOF
 		}
 		dfMsg := u.D.Feed(msg)
 		if dfMsg == nil {
 			// Incomplete message, wait for more
 			continue
 		}
-		return dfMsg.Data, dfMsg.Addr, nil
+		n = copy(b, dfMsg.Data)
+		return n, nil
 	}
 }
 
-// Send is not thread-safe, as it uses a shared SendBuf.
-func (u *udpConn) Send(data []byte, addr string) error {
+func (u *udpConn) SetDeadline(t time.Time) error {
+	// TODO: Implement
+	return nil
+}
+
+func (u *udpConn) SetReadDeadline(t time.Time) error {
+	// TODO: Implement
+	return nil
+}
+
+func (u *udpConn) SetWriteDeadline(t time.Time) error {
+	// TODO: Implement
+	return nil
+}
+
+func (u *udpConn) Write(b []byte) (n int, err error) {
 	// Try no frag first
 	msg := &protocol.UDPMessage{
 		SessionID: u.ID,
 		PacketID:  0,
 		FragID:    0,
 		FragCount: 1,
-		Addr:      addr,
-		Data:      data,
+		Addr:      "",
+		Data:      b,
 	}
-	err := u.SendFunc(u.SendBuf, msg)
+	err = u.SendFunc(u.SendBuf, msg)
 	var errTooLarge *quic.DatagramTooLargeError
 	if errors.As(err, &errTooLarge) {
 		// Message too large, try fragmentation
@@ -68,12 +85,12 @@ func (u *udpConn) Send(data []byte, addr string) error {
 		for _, fMsg := range fMsgs {
 			err := u.SendFunc(u.SendBuf, &fMsg)
 			if err != nil {
-				return err
+				return 0, err
 			}
 		}
-		return nil
+		return len(b), nil
 	} else {
-		return err
+		return len(b), err
 	}
 }
 
@@ -142,7 +159,7 @@ func (m *udpSessionManager) feed(msg *protocol.UDPMessage) {
 }
 
 // NewUDP creates a new UDP session.
-func (m *udpSessionManager) NewUDP() (HyUDPConn, error) {
+func (m *udpSessionManager) NewUDP() (netproxy.Conn, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 

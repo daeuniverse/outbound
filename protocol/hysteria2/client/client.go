@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/daeuniverse/outbound/netproxy"
 	coreErrs "github.com/daeuniverse/outbound/protocol/hysteria2/errors"
 	"github.com/daeuniverse/outbound/protocol/hysteria2/internal/congestion"
 	"github.com/daeuniverse/outbound/protocol/hysteria2/internal/protocol"
@@ -23,14 +24,8 @@ const (
 )
 
 type Client interface {
-	TCP(addr string) (net.Conn, error)
-	UDP() (HyUDPConn, error)
-	Close() error
-}
-
-type HyUDPConn interface {
-	Receive() ([]byte, string, error)
-	Send([]byte, string) error
+	TCP(addr string) (netproxy.Conn, error)
+	UDP() (netproxy.Conn, error)
 	Close() error
 }
 
@@ -56,7 +51,7 @@ func NewClient(config *Config) (Client, *HandshakeInfo, error) {
 type clientImpl struct {
 	config *Config
 
-	pktConn net.PacketConn
+	pktConn netproxy.PacketConn
 	conn    quic.Connection
 
 	udpSM *udpSessionManager
@@ -148,7 +143,7 @@ func (c *clientImpl) connect() (*HandshakeInfo, error) {
 	}
 	_ = resp.Body.Close()
 
-	c.pktConn = pktConn
+	c.pktConn = pktConn.(netproxy.PacketConn)
 	c.conn = conn
 	if authResp.UDPEnabled {
 		c.udpSM = newUDPSessionManager(&udpIOImpl{Conn: conn})
@@ -168,7 +163,7 @@ func (c *clientImpl) openStream() (quic.Stream, error) {
 	return &utils.QStream{Stream: stream}, nil
 }
 
-func (c *clientImpl) TCP(addr string) (net.Conn, error) {
+func (c *clientImpl) TCP(addr string) (netproxy.Conn, error) {
 	stream, err := c.openStream()
 	if err != nil {
 		return nil, wrapIfConnectionClosed(err)
@@ -208,7 +203,7 @@ func (c *clientImpl) TCP(addr string) (net.Conn, error) {
 	}, nil
 }
 
-func (c *clientImpl) UDP() (HyUDPConn, error) {
+func (c *clientImpl) UDP() (netproxy.Conn, error) {
 	if c.udpSM == nil {
 		return nil, coreErrs.DialError{Message: "UDP not enabled"}
 	}

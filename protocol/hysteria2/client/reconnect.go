@@ -4,6 +4,7 @@ import (
 	"net"
 	"sync"
 
+	"github.com/daeuniverse/outbound/netproxy"
 	coreErrs "github.com/daeuniverse/outbound/protocol/hysteria2/errors"
 )
 
@@ -89,7 +90,7 @@ func (rc *reconnectableClientImpl) clientDo(f func(Client) (interface{}, error))
 	return ret, err
 }
 
-func (rc *reconnectableClientImpl) TCP(addr string) (net.Conn, error) {
+func (rc *reconnectableClientImpl) TCP(addr string) (netproxy.Conn, error) {
 	if c, err := rc.clientDo(func(client Client) (interface{}, error) {
 		return client.TCP(addr)
 	}); err != nil {
@@ -99,13 +100,13 @@ func (rc *reconnectableClientImpl) TCP(addr string) (net.Conn, error) {
 	}
 }
 
-func (rc *reconnectableClientImpl) UDP() (HyUDPConn, error) {
+func (rc *reconnectableClientImpl) UDP() (netproxy.Conn, error) {
 	if c, err := rc.clientDo(func(client Client) (interface{}, error) {
 		return client.UDP()
 	}); err != nil {
 		return nil, err
 	} else {
-		return c.(HyUDPConn), nil
+		return c.(netproxy.Conn), nil
 	}
 }
 
