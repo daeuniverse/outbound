@@ -46,7 +46,7 @@ func NewDialer(nextDialer netproxy.Dialer, header protocol.Header) (netproxy.Dia
 		func(c client.Client, hi *client.HandshakeInfo, i int) {
 			// Do nothing
 		},
-		false,
+		true,
 	)
 	if err != nil {
 		return nil, err
