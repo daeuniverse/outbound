@@ -64,12 +64,6 @@ func (d *Dialer) Dial(network, address string) (netproxy.Conn, error) {
 		return nil, err
 	}
 
-	metadata, err := protocol.ParseMetadata(address)
-	if err != nil {
-		return nil, err
-	}
-	metadata.IsClient = d.metadata.IsClient
-
 	switch magicNetwork.Network {
 	case "tcp":
 		return d.client.TCP(address)
