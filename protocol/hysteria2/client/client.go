@@ -155,7 +155,7 @@ func (c *clientImpl) connect() (*HandshakeInfo, error) {
 }
 
 // openStream wraps the stream with QStream, which handles Close() properly
-func (c *clientImpl) openStream() (quic.Stream, error) {
+func (c *clientImpl) openStream() (*utils.QStream, error) {
 	stream, err := c.conn.OpenStream()
 	if err != nil {
 		return nil, err
@@ -231,7 +231,7 @@ func wrapIfConnectionClosed(err error) error {
 }
 
 type tcpConn struct {
-	Orig             quic.Stream
+	Orig             *utils.QStream
 	PseudoLocalAddr  net.Addr
 	PseudoRemoteAddr net.Addr
 	Established      bool
@@ -258,6 +258,17 @@ func (c *tcpConn) Write(b []byte) (n int, err error) {
 
 func (c *tcpConn) Close() error {
 	return c.Orig.Close()
+}
+
+func (c *tcpConn) CloseWrite() error {
+	// quic-go's default close only closes the write side
+	// for more info, see comments in utils.QStream struct
+	return c.Orig.Stream.Close()
+}
+
+func (c *tcpConn) CloseRead() error {
+	c.Orig.Stream.CancelRead(0)
+	return nil
 }
 
 func (c *tcpConn) LocalAddr() net.Addr {
