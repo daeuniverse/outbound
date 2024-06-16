@@ -3,6 +3,7 @@ package hysteria2
 import (
 	"fmt"
 	"net"
+	"net/url"
 
 	"github.com/daeuniverse/outbound/netproxy"
 	"github.com/daeuniverse/outbound/protocol"
@@ -37,6 +38,9 @@ func NewDialer(nextDialer netproxy.Dialer, header protocol.Header) (netproxy.Dia
 			RootCAs:               header.TlsConfig.RootCAs,
 		},
 		Auth: header.User,
+	}
+	if header.Password != "" {
+		config.Auth = url.UserPassword(header.User, header.Password).String()
 	}
 
 	client, err := client.NewReconnectableClient(
