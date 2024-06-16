@@ -2,13 +2,12 @@ package bbr
 
 import (
 	"fmt"
-	"math/rand"
 	"net"
 	"time"
 
-	"github.com/daeuniverse/quic-go/congestion"
-
+	rand "github.com/daeuniverse/outbound/pkg/fastrand"
 	"github.com/daeuniverse/outbound/protocol/tuic/congestion/common"
+	"github.com/daeuniverse/quic-go/congestion"
 )
 
 // BbrSender implements BBR congestion control algorithm.  BBR aims to estimate

@@ -3,6 +3,7 @@ module github.com/daeuniverse/outbound
 go 1.21.0
 
 require (
+	github.com/awnumar/fastrand v0.0.0-20210315215012-30ee0990fa2d
 	github.com/daeuniverse/quic-go v0.0.0-20240413031024-943f218e0810
 	github.com/dgryski/go-camellia v0.0.0-20191119043421-69a8a13fb23d
 	github.com/dgryski/go-idea v0.0.0-20170306091226-d2fb45a411fb
@@ -26,6 +27,8 @@ require (
 
 require (
 	github.com/andybalholm/brotli v1.0.6 // indirect
+	github.com/awnumar/memcall v0.0.0-20190816154910-db5ea08008a3 // indirect
+	github.com/awnumar/memguard v0.19.1 // indirect
 	github.com/cloudflare/circl v1.3.7 // indirect
 	github.com/dgryski/go-metro v0.0.0-20200812162917-85c65e2d0165 // indirect
 	github.com/ebfe/rc2 v0.0.0-20131011165748-24b9757f5521 // indirect

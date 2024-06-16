@@ -3,10 +3,11 @@ package client
 import (
 	"errors"
 	"io"
-	"math/rand"
 	"net/netip"
 	"sync"
 	"time"
+
+	rand "github.com/daeuniverse/outbound/pkg/fastrand"
 
 	"github.com/daeuniverse/quic-go"
 

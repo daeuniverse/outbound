@@ -74,7 +74,7 @@ func (ho *HTTPObfs) Write(b []byte) (int, error) {
 	defer ho.wMu.Unlock()
 	if ho.firstRequest {
 		req, _ := http.NewRequest("GET", fmt.Sprintf("http://%s%s", ho.host, ho.path), bytes.NewBuffer(b[:]))
-		req.Header.Set("User-Agent", fmt.Sprintf("curl/7.%d.%d", fastrand.Rand().Int()%87, fastrand.Rand().Int()%2))
+		req.Header.Set("User-Agent", fmt.Sprintf("curl/7.%d.%d", fastrand.Int()%87, fastrand.Int()%2))
 		req.Header.Set("Upgrade", "websocket")
 		req.Header.Set("Connection", "Upgrade")
 		if ho.port != "80" {
