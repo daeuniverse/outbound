@@ -103,7 +103,7 @@ func ParseHysteria2URL(link string) (*Hysteria2, error) {
 	}
 	return &Hysteria2{
 		Name:      t.Fragment,
-		User:      t.User.String(),
+		User:      t.User.Username(),
 		Server:    t.Hostname(),
 		Port:      port,
 		Insecure:  q.Get("insecure") == "1",
