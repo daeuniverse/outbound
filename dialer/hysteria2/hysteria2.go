@@ -24,6 +24,7 @@ func init() {
 type Hysteria2 struct {
 	Name      string
 	User      string
+	Password  string
 	Server    string
 	Port      int
 	Insecure  bool
@@ -50,6 +51,7 @@ func (s *Hysteria2) Dialer(option *dialer.ExtraOption, nextDialer netproxy.Diale
 		},
 		SNI:      s.Sni,
 		User:     s.User,
+		Password: s.Password,
 		IsClient: true,
 	}
 	if s.PinSHA256 != "" {
@@ -101,7 +103,7 @@ func ParseHysteria2URL(link string) (*Hysteria2, error) {
 	if sni == "" {
 		sni = t.Hostname()
 	}
-	return &Hysteria2{
+	conf := &Hysteria2{
 		Name:      t.Fragment,
 		User:      t.User.Username(),
 		Server:    t.Hostname(),
@@ -109,7 +111,9 @@ func ParseHysteria2URL(link string) (*Hysteria2, error) {
 		Insecure:  q.Get("insecure") == "1",
 		Sni:       sni,
 		PinSHA256: q.Get("pinSHA256"),
-	}, nil
+	}
+	conf.Password, _ = t.User.Password()
+	return conf, nil
 }
 
 func (s *Hysteria2) ExportToURL() string {
@@ -118,6 +122,9 @@ func (s *Hysteria2) ExportToURL() string {
 		Host:     net.JoinHostPort(s.Server, strconv.Itoa(s.Port)),
 		User:     url.User(s.User),
 		Fragment: s.Name,
+	}
+	if s.Password != "" {
+		t.User = url.UserPassword(s.User, s.Password)
 	}
 	q := t.Query()
 	if s.Insecure {
