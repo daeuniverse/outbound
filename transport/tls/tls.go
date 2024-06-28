@@ -36,7 +36,7 @@ func NewTls(option *dialer.ExtraOption, nextDialer netproxy.Dialer, link string)
 
 	tlsImplentation := u.Scheme
 	utlsImitate := query.Get("utlsImitate")
-	if tlsImplentation == "tls" && option.TlsImplementation != "" {
+	if (tlsImplentation == "tls" || tlsImplentation == "") && option.TlsImplementation != "" {
 		tlsImplentation = option.TlsImplementation
 		utlsImitate = option.UtlsImitate
 	}
