@@ -55,6 +55,8 @@ func NetworkToByte(network string) byte {
 		return 1
 	case "udp":
 		return 2
+	case "mux":
+		return 3
 	default:
 		return 0
 	}

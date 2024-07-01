@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: AGPL-3.0-only
- * Copyright (c) 2022-2023, daeuniverse Organization <dae@v2raya.org>
+ * Copyright (c) 2022-2024, daeuniverse Organization <dae@v2raya.org>
  */
 
 package common
@@ -219,3 +219,12 @@ func ResolveUDPAddr(resolver *net.Resolver, hostport string) (*net.UDPAddr, erro
 	}
 	return net.UDPAddrFromAddrPort(netip.AddrPortFrom(ip, uint16(port))), nil
 }
+
+// // MultiWrite uses io.Copy to try to avoid seperated packets.
+// func MultiWrite(dst io.Writer, bs ...[]byte) (int64, error) {
+// 	readers := make([]io.Reader, 0, len(bs))
+// 	for _, b := range bs {
+// 		readers = append(readers, bytes.NewReader(b))
+// 	}
+// 	return io.Copy(dst, io.MultiReader(readers...))
+// }
