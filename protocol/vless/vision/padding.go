@@ -25,9 +25,9 @@ func ApplyPaddingFromPool(p []byte, command byte, userUUID []byte, longPadding b
 	var paddingLen int32
 	if contentLen < 900 && longPadding {
 		//logrus.Debugln("long padding")
-		paddingLen = fastrand.Rand().Int31n(500) + 900 - contentLen
+		paddingLen = fastrand.Int31n(500) + 900 - contentLen
 	} else {
-		paddingLen = fastrand.Rand().Int31n(256)
+		paddingLen = fastrand.Int31n(256)
 	}
 
 	prefix = pool.Get(len(userUUID) + 1 + 2 + 2)
