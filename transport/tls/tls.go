@@ -106,7 +106,7 @@ func (s *Tls) Dial(network, addr string) (c netproxy.Conn, err error) {
 			}, s.tlsConfig)
 
 		case "utls":
-			clientHelloID, err := NameToUtlsClientHelloID(s.utlsImitate)
+			clientHelloID, err := nameToUtlsClientHelloID(s.utlsImitate)
 			if err != nil {
 				return nil, err
 			}

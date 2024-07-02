@@ -1,10 +1,10 @@
 // protocol spec:
 // https://trojan-gfw.github.io/trojan/protocol
 
-package trojanc
+package vless
 
 import (
-	"bytes"
+	"crypto/subtle"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -17,24 +17,34 @@ import (
 	"github.com/daeuniverse/outbound/netproxy"
 	"github.com/daeuniverse/outbound/pool"
 	"github.com/daeuniverse/outbound/protocol/vmess"
+	"google.golang.org/protobuf/proto"
 )
 
 var (
 	FailAuthErr = fmt.Errorf("incorrect UUID")
 )
 
+type Metadata struct {
+	vmess.Metadata
+	Flow string
+	Mux  bool
+}
+
 type Conn struct {
 	netproxy.Conn
-	metadata            vmess.Metadata
+	metadata            Metadata
 	cmdKey              []byte
 	cachedProxyAddrIpIP netip.AddrPort
 
 	writeMutex sync.Mutex
+	readMutex  sync.Mutex
 	onceWrite  bool
 	onceRead   sync.Once
+
+	addonsBytes []byte
 }
 
-func NewConn(conn netproxy.Conn, metadata vmess.Metadata, cmdKey []byte) (c *Conn, err error) {
+func NewConn(conn netproxy.Conn, metadata Metadata, cmdKey []byte) (c *Conn, err error) {
 
 	// DO NOT use pool here because Close() cannot interrupt the reading or writing, which will modify the value of the pool buffer.
 	key := make([]byte, len(cmdKey))
@@ -59,26 +69,71 @@ func NewConn(conn netproxy.Conn, metadata vmess.Metadata, cmdKey []byte) (c *Con
 			}
 		})
 	}
+	if metadata.Flow != "" {
+		c.addonsBytes, err = proto.Marshal(&Addons{
+			Flow: metadata.Flow,
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
 	return c, nil
+}
+
+func (c *Conn) IntrinsicConn() netproxy.Conn {
+	return c.Conn
 }
 
 func (c *Conn) reqHeaderFromPool(payload []byte) (buf []byte) {
 	addrLen := c.metadata.AddrLen()
-	buf = pool.Get(1 + 16 + 1 + 1 + 2 + 1 + addrLen + len(payload))
-	buf[0] = 0 // version
-	copy(buf[1:], c.cmdKey)
-	buf[17] = 0                                           // length of addons
-	buf[18] = vmess.NetworkToByte(c.metadata.Network)     // inst
-	binary.BigEndian.PutUint16(buf[19:], c.metadata.Port) // port
-	buf[21] = vmess.MetadataTypeToByte(c.metadata.Type)   // addr type
-	c.metadata.PutAddr(buf[22:])
-	copy(buf[22+addrLen:], payload)
+	if !c.metadata.Mux {
+		buf = pool.Get(1 + 16 + len(c.addonsBytes) + 1 + 1 + 2 + 1 + addrLen + len(payload))
+	} else {
+		buf = pool.Get(1 + 16 + len(c.addonsBytes) + 1 + 1 + len(payload))
+	}
+	start := 0
+	buf[start] = 0 // version
+	start += 1
+	copy(buf[start:], c.cmdKey)
+	start += 16
+	buf[start] = byte(len(c.addonsBytes)) // length of addons
+	start += 1
+	copy(buf[start:], c.addonsBytes)
+	start += len(c.addonsBytes)
+	if !c.metadata.Mux {
+		buf[start] = vmess.NetworkToByte(c.metadata.Network) // inst
+		start += 1
+		binary.BigEndian.PutUint16(buf[start:], c.metadata.Port) // port
+		start += 2
+		buf[start] = vmess.MetadataTypeToByte(c.metadata.Type) // addr type
+		start += 1
+		c.metadata.PutAddr(buf[start:])
+		start += addrLen
+	} else {
+		buf[start] = vmess.NetworkToByte("mux") // inst
+		start += 1
+	}
+	copy(buf[start:], payload)
 	return buf
 }
 
 func (c *Conn) Write(b []byte) (n int, err error) {
+	// logrus.Println("VLESS CONN WRITE", hex.EncodeToString(b))
 	c.writeMutex.Lock()
 	defer c.writeMutex.Unlock()
+	if c.metadata.Network == "udp" {
+		// logrus.Println("!!!", "UDP, write")
+		bLen := pool.Get(2)
+		defer pool.Put(bLen)
+		binary.BigEndian.PutUint16(bLen, uint16(len(b)))
+		if _, err = c.write(bLen); err != nil {
+			return 0, err
+		}
+	}
+	return c.write(b)
+}
+
+func (c *Conn) write(b []byte) (n int, err error) {
 	if !c.onceWrite {
 		if c.metadata.IsClient {
 			buf := c.reqHeaderFromPool(b)
@@ -94,6 +149,29 @@ func (c *Conn) Write(b []byte) (n int, err error) {
 }
 
 func (c *Conn) Read(b []byte) (n int, err error) {
+	c.readMutex.Lock()
+	defer c.readMutex.Unlock()
+
+	if c.metadata.Network == "udp" {
+		// logrus.Println("!!!", "UDP, read")
+		// defer func() {
+		// 	logrus.Println("READ", n, err)
+		// }()
+		bLen := pool.Get(2)
+		defer pool.Put(bLen)
+		if _, err = io.ReadFull(&netproxy.ReadWrapper{ReadFunc: c.read}, bLen); err != nil {
+			return 0, err
+		}
+		length := int(binary.BigEndian.Uint16(bLen))
+		if len(b) < length {
+			return 0, fmt.Errorf("buf size is not enough")
+		}
+	}
+
+	return c.read(b)
+}
+
+func (c *Conn) read(b []byte) (n int, err error) {
 	c.onceRead.Do(func() {
 		if c.metadata.IsClient {
 			if err = c.ReadRespHeader(); err != nil {
@@ -120,7 +198,7 @@ func (c *Conn) ReadReqHeader() (err error) {
 	if buf[0] != 0 {
 		return fmt.Errorf("version %v is not supprted", buf[0])
 	}
-	if !bytes.Equal(c.cmdKey[:], buf[1:17]) {
+	if subtle.ConstantTimeCompare(c.cmdKey[:16], buf[1:17]) != 1 {
 		return FailAuthErr
 	}
 	if _, err = io.CopyN(io.Discard, c.Conn, int64(buf[17])); err != nil { // ignore addons

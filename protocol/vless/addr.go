@@ -1,4 +1,4 @@
-package trojanc
+package vless
 
 import (
 	"encoding/binary"
@@ -11,7 +11,7 @@ import (
 	"github.com/daeuniverse/outbound/protocol/vmess"
 )
 
-func CompleteMetadataFromReader(m *vmess.Metadata, first4 []byte, r io.Reader) (err error) {
+func CompleteMetadataFromReader(m *Metadata, first4 []byte, r io.Reader) (err error) {
 	m.Type = vmess.ParseMetadataType(first4[3])
 	switch m.Type {
 	case protocol.MetadataTypeIPv4:

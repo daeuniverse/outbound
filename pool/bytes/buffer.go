@@ -76,7 +76,8 @@ func (b *Buffer) empty() bool { return len(b.buf) <= b.off }
 
 // Len returns the number of bytes of the unread portion of the buffer;
 // b.Len() == len(b.Bytes()).
-func (b *Buffer) Len() int { return len(b.buf) - b.off }
+func (b *Buffer) Len() int    { return len(b.buf) - b.off }
+func (b *Buffer) Empty() bool { return b.Len() == 0 }
 
 // Cap returns the capacity of the buffer's underlying byte slice, that is, the
 // total space allocated for the buffer's data.
