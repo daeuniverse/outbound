@@ -19,8 +19,10 @@ import (
 )
 
 var (
-	_ io.Writer = (*writeWrapper)(nil)
-	_ io.Reader = (*readWrapper)(nil)
+	_ io.Writer     = (*writeWrapper)(nil)
+	_ io.Reader     = (*readWrapper)(nil)
+	_ io.ReaderFrom = (*Conn)(nil)
+	_ io.WriterTo   = (*Conn)(nil)
 )
 
 type readWrapper struct {
@@ -86,6 +88,32 @@ func (vc *Conn) Read(b []byte) (int, error) {
 		return vc.reader.Read(b)
 	}
 	return vc.read(b)
+}
+
+// WriteTo implements io.WriterTo.
+func (vc *Conn) WriteTo(w io.Writer) (n int64, err error) {
+	if !vc.reader.directRead {
+		b := pool.Get(2048)
+		for {
+			_n, err := vc.Read(b)
+			if err != nil {
+				b.Put()
+				return n, err
+			}
+			if _, err = w.Write(b[:_n]); err != nil {
+				b.Put()
+				return n, err
+			}
+			n += int64(_n)
+			if vc.reader.directRead {
+				b.Put()
+				break
+			}
+		}
+	}
+	_n, err := vc.Conn.(*netproxy.FakeNetConn).Conn.(io.WriterTo).WriteTo(w)
+	n += _n
+	return n, err
 }
 
 func (vc *Conn) read(b []byte) (int, error) {
@@ -211,6 +239,32 @@ func (vc *Conn) Write(p []byte) (int, error) {
 		return len(p), nil
 	}
 	return vc.writer.Write(p)
+}
+
+// ReadFrom implements io.ReaderFrom.
+func (vc *Conn) ReadFrom(r io.Reader) (n int64, err error) {
+	if !vc.writer.writeDirect {
+		b := pool.Get(2048)
+		for {
+			_n, err := r.Read(b)
+			if err != nil {
+				b.Put()
+				return n, err
+			}
+			if _, err = vc.Write(b[:_n]); err != nil {
+				b.Put()
+				return n, err
+			}
+			n += int64(_n)
+			if vc.writer.writeDirect {
+				b.Put()
+				break
+			}
+		}
+	}
+	_n, err := vc.Conn.(*netproxy.FakeNetConn).Conn.(io.ReaderFrom).ReadFrom(r)
+	n += _n
+	return n, err
 }
 
 func (vc *Conn) write(p []byte) (err error) {
