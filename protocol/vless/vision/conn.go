@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"reflect"
 	"sync"
 
 	"github.com/daeuniverse/outbound/common/iout"
@@ -19,10 +20,10 @@ import (
 )
 
 var (
-	_ io.Writer     = (*writeWrapper)(nil)
-	_ io.Reader     = (*readWrapper)(nil)
-	_ io.ReaderFrom = (*Conn)(nil)
-	_ io.WriterTo   = (*Conn)(nil)
+	_ io.Writer = (*writeWrapper)(nil)
+	_ io.Reader = (*readWrapper)(nil)
+	// _ io.ReaderFrom = (*Conn)(nil)
+	_ io.WriterTo = (*Conn)(nil)
 )
 
 type readWrapper struct {
@@ -90,10 +91,37 @@ func (vc *Conn) Read(b []byte) (int, error) {
 	return vc.read(b)
 }
 
+func isTCPConnUnixConn(conn any) bool {
+	if _, ok := conn.(*net.TCPConn); ok {
+		return true
+	} else if _, ok := conn.(*net.UnixConn); ok {
+		return true
+	}
+	return false
+}
+
+// getUnderlayTCPConnUnixConn gets the underlay TCPConn and UnixConn.
+// Use it carefully!
+func getUnderlayTCPConnUnixConn(conn any) (any, bool) {
+	// log.Printf("Type: %T", conn)
+	val := reflect.ValueOf(conn)
+	for {
+		if isTCPConnUnixConn(val.Interface()) {
+			// log.Printf("Type: %T", val.Interface())
+			return val.Interface(), true
+		}
+		val = reflect.Indirect(val)
+		if val = val.FieldByName("Conn"); val.IsZero() {
+			// log.Printf("Unexpected type: %T", val.Interface())
+			return conn, false
+		}
+	}
+}
+
 // WriteTo implements io.WriterTo.
 func (vc *Conn) WriteTo(w io.Writer) (n int64, err error) {
 	if !vc.reader.directRead {
-		b := pool.Get(2048)
+		b := pool.Get(4096)
 		for {
 			_n, err := vc.Read(b)
 			if err != nil {
@@ -111,7 +139,13 @@ func (vc *Conn) WriteTo(w io.Writer) (n int64, err error) {
 			}
 		}
 	}
-	_n, err := vc.Conn.(*netproxy.FakeNetConn).Conn.(io.WriterTo).WriteTo(w)
+	// It is safe to get the TCPConn here, because directRead == true.
+	conn, _ := getUnderlayTCPConnUnixConn(vc.Conn)
+	// w is *sniffing.ConnSniffer.
+	// It is safe to get the TCPConn here, because we are downloading something and sniffing is over.
+	w_, _ := getUnderlayTCPConnUnixConn(w)
+	_n, err := conn.(io.WriterTo).WriteTo(w_.(io.Writer))
+	// log.Println("Read", n, _n)
 	n += _n
 	return n, err
 }
@@ -241,31 +275,36 @@ func (vc *Conn) Write(p []byte) (int, error) {
 	return vc.writer.Write(p)
 }
 
-// ReadFrom implements io.ReaderFrom.
-func (vc *Conn) ReadFrom(r io.Reader) (n int64, err error) {
-	if !vc.writer.writeDirect {
-		b := pool.Get(2048)
-		for {
-			_n, err := r.Read(b)
-			if err != nil {
-				b.Put()
-				return n, err
-			}
-			if _, err = vc.Write(b[:_n]); err != nil {
-				b.Put()
-				return n, err
-			}
-			n += int64(_n)
-			if vc.writer.writeDirect {
-				b.Put()
-				break
-			}
-		}
-	}
-	_n, err := vc.Conn.(*netproxy.FakeNetConn).Conn.(io.ReaderFrom).ReadFrom(r)
-	n += _n
-	return n, err
-}
+// // ReadFrom implements io.ReaderFrom.
+// func (vc *Conn) ReadFrom(r io.Reader) (n int64, err error) {
+// 	if !vc.writer.writeDirect {
+// 		b := pool.Get(4096)
+// 		for {
+// 			_n, err := r.Read(b)
+// 			if err != nil {
+// 				b.Put()
+// 				return n, err
+// 			}
+// 			if _, err = vc.Write(b[:_n]); err != nil {
+// 				b.Put()
+// 				return n, err
+// 			}
+// 			n += int64(_n)
+// 			if vc.writer.writeDirect {
+// 				b.Put()
+// 				break
+// 			}
+// 		}
+// 	}
+// 	// It is safe to get the TCPConn here, because writeDirect == true.
+// 	conn, _ := getUnderlayTCPConnUnixConn(vc.Conn)
+//  // Unsafe
+// 	r_, _ := getUnderlayTCPConnUnixConn(r)
+// 	_n, err := conn.(io.ReaderFrom).ReadFrom(r_.(io.Reader))
+// 	// log.Println("Write", n, _n)
+// 	n += _n
+// 	return n, err
+// }
 
 func (vc *Conn) write(p []byte) (err error) {
 	if vc.needHandshake {
