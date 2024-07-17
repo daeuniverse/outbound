@@ -296,9 +296,6 @@ func ParseVlessURL(vless string) (data *V2Ray, err error) {
 	if data.TLS == "" {
 		data.TLS = "none"
 	}
-	if data.Flow == "" {
-		data.Flow = "reality-rprx-direct"
-	}
 	if data.Type == "mkcp" || data.Type == "kcp" {
 		data.Path = u.Query().Get("seed")
 	}
