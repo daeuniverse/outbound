@@ -1,4 +1,4 @@
-package trojanc
+package vless
 
 import (
 	"encoding/hex"
