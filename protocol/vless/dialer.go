@@ -64,6 +64,7 @@ func (d *Dialer) Dial(network string, addr string) (c netproxy.Conn, err error) 
 		tcpNetwork := netproxy.MagicNetwork{
 			Network: "tcp",
 			Mark:    magicNetwork.Mark,
+			Mptcp:   magicNetwork.Mptcp,
 		}.Encode()
 		conn, err := d.nextDialer.Dial(tcpNetwork, d.proxyAddress)
 		if err != nil {
