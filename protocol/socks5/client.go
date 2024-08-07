@@ -42,6 +42,7 @@ func (s *Socks5) Dial(network, addr string) (netproxy.Conn, error) {
 		tcpNetwork := netproxy.MagicNetwork{
 			Network: "tcp",
 			Mark:    magicNetwork.Mark,
+			Mptcp:   magicNetwork.Mptcp,
 		}.Encode()
 		c, err := s.dialer.Dial(tcpNetwork, s.addr)
 		if err != nil {

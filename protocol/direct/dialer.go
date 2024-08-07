@@ -105,10 +105,11 @@ func (d *directDialer) dialUdp(addr string, mark int) (c netproxy.PacketConn, er
 	}
 }
 
-func (d *directDialer) dialTcp(addr string, mark int) (c netproxy.Conn, err error) {
+func (d *directDialer) dialTcp(addr string, mark int, mptcp bool) (c netproxy.Conn, err error) {
 	dialer := &net.Dialer{
 		LocalAddr: d.tcpLocalAddr,
 	}
+	dialer.SetMultipathTCP(mptcp)
 	if mark == 0 {
 		return dialer.Dial("tcp", addr)
 	} else {
@@ -137,7 +138,7 @@ func (d *directDialer) Dial(network, addr string) (c netproxy.Conn, err error) {
 	}
 	switch magicNetwork.Network {
 	case "tcp":
-		return d.dialTcp(addr, int(magicNetwork.Mark))
+		return d.dialTcp(addr, int(magicNetwork.Mark), magicNetwork.Mptcp)
 	case "udp":
 		return d.dialUdp(addr, int(magicNetwork.Mark))
 	default:

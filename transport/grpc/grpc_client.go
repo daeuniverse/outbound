@@ -322,7 +322,7 @@ func (d *Dialer) DialContext(ctx context.Context, network string, address string
 	if err != nil {
 		return nil, err
 	}
-	meta, cancel, err := getGrpcClientConn(ctx, d.NextDialer, d.ServerName, address, d.AllowInsecure, magicNetwork.Mark)
+	meta, cancel, err := getGrpcClientConn(ctx, d.NextDialer, d.ServerName, address, d.AllowInsecure, magicNetwork.Mark, magicNetwork.Mptcp)
 	if err != nil {
 		cancel()
 		return nil, err
@@ -344,7 +344,7 @@ func (d *Dialer) DialContext(ctx context.Context, network string, address string
 	return NewClientConn(tun, streamCloser), nil
 }
 
-func getGrpcClientConn(ctx context.Context, tcpDialer netproxy.ContextDialer, serverName string, address string, allowInsecure bool, somark uint32) (*clientConnMeta, ccCanceller, error) {
+func getGrpcClientConn(ctx context.Context, tcpDialer netproxy.ContextDialer, serverName string, address string, allowInsecure bool, somark uint32, mptcp bool) (*clientConnMeta, ccCanceller, error) {
 	// allowInsecure?
 	roots, err := cert.GetSystemCertPool()
 	if err != nil {
@@ -381,6 +381,7 @@ func getGrpcClientConn(ctx context.Context, tcpDialer netproxy.ContextDialer, se
 			tcpNetwork := netproxy.MagicNetwork{
 				Network: "tcp",
 				Mark:    somark,
+				Mptcp:   mptcp,
 			}.Encode()
 			c, err := tcpDialer.DialContext(ctxGrpc, tcpNetwork, s)
 			if err != nil {
