@@ -84,7 +84,9 @@ func (c *clientImpl) connect() (*HandshakeInfo, error) {
 	rt := &http3.RoundTripper{
 		TLSClientConfig: tlsConfig,
 		QuicConfig:      quicConfig,
-		Dial: func(ctx context.Context, _ string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlyConnection, error) {
+		Dial: func(_ context.Context, _ string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlyConnection, error) {
+			ctx, cancel := netproxy.NewDialTimeoutContext()
+			defer cancel()
 			qc, err := quic.DialEarly(ctx, pktConn, c.config.ServerAddr, tlsCfg, cfg)
 			if err != nil {
 				return nil, err

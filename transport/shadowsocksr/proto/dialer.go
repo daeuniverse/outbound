@@ -1,6 +1,7 @@
 package proto
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -48,7 +49,7 @@ func (d *Dialer) protocolFromInnerConn(conn netproxy.Conn, addr socks.Addr) (pro
 	}
 }
 
-func (d *Dialer) Dial(network, address string) (netproxy.Conn, error) {
+func (d *Dialer) DialContext(ctx context.Context, network, address string) (netproxy.Conn, error) {
 	magicNetwork, err := netproxy.ParseMagicNetwork(network)
 	if err != nil {
 		return nil, err
@@ -62,7 +63,7 @@ func (d *Dialer) Dial(network, address string) (netproxy.Conn, error) {
 
 		switch nextDialer := d.NextDialer.(type) {
 		case *shadowsocks_stream.Dialer:
-			transportConn, err := nextDialer.DialTcpTransport(network)
+			transportConn, err := nextDialer.DialTcpTransport(ctx, network)
 			if err != nil {
 				return nil, err
 			}
@@ -89,7 +90,7 @@ func (d *Dialer) Dial(network, address string) (netproxy.Conn, error) {
 
 		switch nextDialer := d.NextDialer.(type) {
 		case *shadowsocks_stream.Dialer:
-			c, err := nextDialer.DialUdpTransport(network)
+			c, err := nextDialer.DialUdpTransport(ctx, network)
 			if err != nil {
 				return nil, err
 			}

@@ -2,6 +2,7 @@ package httpupgrade
 
 import (
 	"bufio"
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -65,14 +66,14 @@ func NewDialer(s string, d netproxy.Dialer) (*Dialer, error) {
 	return t, nil
 }
 
-func (t *Dialer) Dial(network, addr string) (c netproxy.Conn, err error) {
+func (t *Dialer) DialContext(ctx context.Context, network, addr string) (c netproxy.Conn, err error) {
 	magicNetwork, err := netproxy.ParseMagicNetwork(network)
 	if err != nil {
 		return nil, err
 	}
 	switch magicNetwork.Network {
 	case "tcp":
-		conn, err := t.nextDialer.Dial(network, addr)
+		conn, err := t.nextDialer.DialContext(ctx, network, addr)
 		if err != nil {
 			return nil, err
 		}

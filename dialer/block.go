@@ -6,6 +6,7 @@
 package dialer
 
 import (
+	"context"
 	"fmt"
 	"net"
 
@@ -16,7 +17,7 @@ type blockDialer struct {
 	DialCallback func()
 }
 
-func (d *blockDialer) Dial(network, addr string) (c netproxy.Conn, err error) {
+func (d *blockDialer) DialContext(ctx context.Context, network, addr string) (c netproxy.Conn, err error) {
 	magicNetwork, err := netproxy.ParseMagicNetwork(network)
 	if err != nil {
 		return nil, err

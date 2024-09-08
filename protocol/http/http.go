@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -84,7 +85,7 @@ func NewHTTPProxy(u *url.URL, forward netproxy.Dialer) (netproxy.Dialer, error) 
 	return s, nil
 }
 
-func (s *HttpProxy) Dial(network, addr string) (netproxy.Conn, error) {
+func (s *HttpProxy) DialContext(ctx context.Context, network, addr string) (netproxy.Conn, error) {
 	magicNetwork, err := netproxy.ParseMagicNetwork(network)
 	if err != nil {
 		return nil, err

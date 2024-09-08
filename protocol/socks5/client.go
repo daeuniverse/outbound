@@ -3,6 +3,7 @@
 package socks5
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -22,14 +23,14 @@ func NewSocks5Dialer(s string, d netproxy.Dialer) (netproxy.Dialer, error) {
 	return NewSocks5(s, d)
 }
 
-func (s *Socks5) Dial(network, addr string) (netproxy.Conn, error) {
+func (s *Socks5) DialContext(ctx context.Context, network, addr string) (netproxy.Conn, error) {
 	magicNetwork, err := netproxy.ParseMagicNetwork(network)
 	if err != nil {
 		return nil, err
 	}
 	switch magicNetwork.Network {
 	case "tcp":
-		c, err := s.dialer.Dial(network, s.addr)
+		c, err := s.dialer.DialContext(ctx, network, s.addr)
 		if err != nil {
 			return nil, fmt.Errorf("[socks5]: dial to %s error: %w", s.addr, err)
 		}
@@ -44,7 +45,7 @@ func (s *Socks5) Dial(network, addr string) (netproxy.Conn, error) {
 			Mark:    magicNetwork.Mark,
 			Mptcp:   magicNetwork.Mptcp,
 		}.Encode()
-		c, err := s.dialer.Dial(tcpNetwork, s.addr)
+		c, err := s.dialer.DialContext(ctx, tcpNetwork, s.addr)
 		if err != nil {
 			return nil, fmt.Errorf("[socks5]: dial to %s error: %w", s.addr, err)
 		}
@@ -68,7 +69,7 @@ func (s *Socks5) Dial(network, addr string) (netproxy.Conn, error) {
 			uAddress = net.JoinHostPort(h, p)
 		}
 
-		conn, err := s.dialer.Dial(network, uAddress)
+		conn, err := s.dialer.DialContext(ctx, network, uAddress)
 		if err != nil {
 			return nil, fmt.Errorf("[socks5] dialudp to %s error: %w", uAddress, err)
 		}

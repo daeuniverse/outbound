@@ -2,6 +2,7 @@ package shadowsocks_stream
 
 import (
 	"bytes"
+	"context"
 	"net"
 	"net/http"
 	"testing"
@@ -34,7 +35,7 @@ func TestNewSSStream(t *testing.T) {
 	}
 	c := http.Client{
 		Transport: &http.Transport{Dial: func(network string, addr string) (net.Conn, error) {
-			c, err := dialer.Dial("tcp", addr)
+			c, err := dialer.DialContext(context.Background(), "tcp", addr)
 			if err != nil {
 				return nil, err
 			}

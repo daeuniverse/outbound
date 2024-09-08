@@ -2,6 +2,7 @@ package shadowsocksr
 
 import (
 	"bytes"
+	"context"
 	"net"
 	"net/http"
 	"testing"
@@ -47,7 +48,7 @@ func BenchmarkSSR(b *testing.B) {
 
 		c := http.Client{
 			Transport: &http.Transport{Dial: func(network string, addr string) (net.Conn, error) {
-				c, err := d.Dial("tcp", addr)
+				c, err := d.DialContext(context.Background(), "tcp", addr)
 				if err != nil {
 					return nil, err
 				}

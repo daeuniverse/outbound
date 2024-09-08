@@ -6,6 +6,8 @@ import (
 	"crypto/rand"
 	"io"
 	"time"
+
+	"github.com/daeuniverse/outbound/netproxy"
 )
 
 type assemblerClient struct {
@@ -117,9 +119,11 @@ func (s *assemblerClientSession) runOnce() {
 			pollConnection = false
 		}
 		for {
-			resp, err := s.tripper.RoundTrip(s.ctx, Request{Data: data, ConnectionTag: s.sessionID})
+			ctx, cancel := netproxy.NewDialTimeoutContextFrom(s.ctx)
+			defer cancel()
+			resp, err := s.tripper.RoundTrip(ctx, Request{Data: data, ConnectionTag: s.sessionID})
 			if err != nil {
-				if s.ctx.Err() != nil {
+				if ctx.Err() != nil {
 					return
 				}
 				time.Sleep(time.Millisecond * time.Duration(s.assembler.config.FailedRetryIntervalMs))

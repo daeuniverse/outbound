@@ -76,12 +76,12 @@ func NewDialer(nextDialer netproxy.Dialer, header protocol.Header) (netproxy.Dia
 	}, nil
 }
 
-func (d *Dialer) DialTcp(addr string) (c netproxy.Conn, err error) {
-	return d.Dial("tcp", addr)
+func (d *Dialer) DialTcp(ctx context.Context, addr string) (c netproxy.Conn, err error) {
+	return d.DialContext(ctx, "tcp", addr)
 }
 
-func (d *Dialer) DialUdp(addr string) (c netproxy.PacketConn, err error) {
-	pktConn, err := d.Dial("udp", addr)
+func (d *Dialer) DialUdp(ctx context.Context, addr string) (c netproxy.PacketConn, err error) {
+	pktConn, err := d.DialContext(ctx, "udp", addr)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +90,7 @@ func (d *Dialer) DialUdp(addr string) (c netproxy.PacketConn, err error) {
 
 func (d *Dialer) dialFuncFactory(udpNetwork string, rAddr net.Addr) common.DialFunc {
 	return func(ctx context.Context, dialer netproxy.Dialer) (transport *quic.Transport, addr net.Addr, err error) {
-		conn, err := dialer.Dial(udpNetwork, d.proxyAddress)
+		conn, err := dialer.DialContext(ctx, udpNetwork, d.proxyAddress)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -104,9 +104,7 @@ func (d *Dialer) dialFuncFactory(udpNetwork string, rAddr net.Addr) common.DialF
 	}
 }
 
-func (d *Dialer) Dial(network string, addr string) (c netproxy.Conn, err error) {
-	ctx, cancel := netproxy.NewDialTimeoutContext()
-	defer cancel()
+func (d *Dialer) DialContext(ctx context.Context, network string, addr string) (c netproxy.Conn, err error) {
 	magicNetwork, err := netproxy.ParseMagicNetwork(network)
 	if err != nil {
 		return nil, err
@@ -196,9 +194,7 @@ func underlayKey(psk []byte) (key *shadowsocks.Key, err error) {
 	}, nil
 }
 
-func (d *Dialer) DialCmdMsg(cmd protocol.MetadataCmd) (c netproxy.Conn, err error) {
-	ctx, cancel := netproxy.NewDialTimeoutContext()
-	defer cancel()
+func (d *Dialer) DialCmdMsg(ctx context.Context, cmd protocol.MetadataCmd) (c netproxy.Conn, err error) {
 	proxyAddr, err := net.ResolveUDPAddr("udp", d.proxyAddress)
 	if err != nil {
 		return nil, err

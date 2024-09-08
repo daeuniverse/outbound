@@ -1,6 +1,7 @@
 package mux
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/daeuniverse/outbound/netproxy"
@@ -13,14 +14,14 @@ type Mux struct {
 	PassthroughUdp bool
 }
 
-func (s *Mux) Dial(network, addr string) (c netproxy.Conn, err error) {
+func (s *Mux) DialContext(ctx context.Context, network, addr string) (c netproxy.Conn, err error) {
 	magicNetwork, err := netproxy.ParseMagicNetwork(network)
 	if err != nil {
 		return nil, err
 	}
 	switch magicNetwork.Network {
 	case "tcp":
-		c, err := s.NextDialer.Dial(network, addr)
+		c, err := s.NextDialer.DialContext(ctx, network, addr)
 		if err != nil {
 			return nil, fmt.Errorf("[Mux]: dial to %s: %w", s.Addr, err)
 		}
@@ -36,7 +37,7 @@ func (s *Mux) Dial(network, addr string) (c netproxy.Conn, err error) {
 		}), err
 	case "udp":
 		if s.PassthroughUdp {
-			return s.NextDialer.Dial(network, addr)
+			return s.NextDialer.DialContext(ctx, network, addr)
 		}
 		// TODO:
 		return nil, fmt.Errorf("%w: mux+udp", netproxy.UnsupportedTunnelTypeError)

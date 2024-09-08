@@ -69,7 +69,7 @@ func NewDialer(s string, d netproxy.Dialer) (*Dialer, error) {
 	return m, nil
 }
 
-func (m *Dialer) Dial(network, addr string) (c netproxy.Conn, err error) {
+func (m *Dialer) DialContext(ctx context.Context, network, addr string) (c netproxy.Conn, err error) {
 	magicNetwork, err := netproxy.ParseMagicNetwork(network)
 	if err != nil {
 		return nil, err

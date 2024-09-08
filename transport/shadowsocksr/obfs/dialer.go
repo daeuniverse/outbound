@@ -1,6 +1,7 @@
 package obfs
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -39,14 +40,14 @@ func (d *Dialer) ObfsOverhead() int {
 	return d.constructor.Overhead
 }
 
-func (d *Dialer) Dial(network, addr string) (netproxy.Conn, error) {
+func (d *Dialer) DialContext(ctx context.Context, network, addr string) (netproxy.Conn, error) {
 	magicNetwork, err := netproxy.ParseMagicNetwork(network)
 	if err != nil {
 		return nil, err
 	}
 	switch magicNetwork.Network {
 	case "tcp":
-		conn, err := d.NextDialer.Dial(network, addr)
+		conn, err := d.NextDialer.DialContext(ctx, network, addr)
 		if err != nil {
 			return nil, err
 		}
@@ -64,7 +65,7 @@ func (d *Dialer) Dial(network, addr string) (netproxy.Conn, error) {
 
 		return NewConn(conn, obfs)
 	case "udp":
-		return d.NextDialer.Dial(network, addr)
+		return d.NextDialer.DialContext(ctx, network, addr)
 	default:
 		return nil, fmt.Errorf("%w: %v", netproxy.UnsupportedTunnelTypeError, network)
 	}

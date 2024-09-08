@@ -64,8 +64,8 @@ func (c *httpTripperClient) getRoundTripper() http.RoundTripper {
 	}
 	if _, ok := globalRoundTripperCacheMap[c.addr]; !ok {
 		globalRoundTripperCacheMap[c.addr] = &http.Transport{
-			DialContext: func(_ context.Context, network, addr string) (net.Conn, error) {
-				rc, err := c.nextDialer.Dial(network, addr)
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				rc, err := c.nextDialer.DialContext(ctx, network, addr)
 				if err != nil {
 					return nil, fmt.Errorf("[Meek]: dial to %s: %w", c.addr, err)
 				}

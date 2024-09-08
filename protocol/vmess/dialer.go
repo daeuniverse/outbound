@@ -1,6 +1,7 @@
 package vmess
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/daeuniverse/outbound/common"
@@ -66,19 +67,19 @@ func NewDialerFactory(proto protocol.Protocol) func(nextDialer netproxy.Dialer, 
 	}
 }
 
-func (d *Dialer) DialTcp(addr string) (c netproxy.Conn, err error) {
-	return d.Dial("tcp", addr)
+func (d *Dialer) DialTcp(ctx context.Context, addr string) (c netproxy.Conn, err error) {
+	return d.DialContext(ctx, "tcp", addr)
 }
 
-func (d *Dialer) DialUdp(addr string) (c netproxy.PacketConn, err error) {
-	pktConn, err := d.Dial("udp", addr)
+func (d *Dialer) DialUdp(ctx context.Context, addr string) (c netproxy.PacketConn, err error) {
+	pktConn, err := d.DialContext(ctx, "udp", addr)
 	if err != nil {
 		return nil, err
 	}
 	return pktConn.(netproxy.PacketConn), nil
 }
 
-func (d *Dialer) Dial(network string, addr string) (c netproxy.Conn, err error) {
+func (d *Dialer) DialContext(ctx context.Context, network string, addr string) (c netproxy.Conn, err error) {
 	magicNetwork, err := netproxy.ParseMagicNetwork(network)
 	if err != nil {
 		return nil, err
@@ -98,7 +99,7 @@ func (d *Dialer) Dial(network string, addr string) (c netproxy.Conn, err error) 
 
 		if d.protocol == protocol.ProtocolVMessTlsGrpc {
 			d.nextDialer = &grpc.Dialer{
-				NextDialer:  &netproxy.ContextDialerConverter{Dialer: d.nextDialer},
+				NextDialer:  d,
 				ServiceName: d.grpcServiceName,
 				ServerName:  d.proxySNI,
 			}
@@ -108,7 +109,7 @@ func (d *Dialer) Dial(network string, addr string) (c netproxy.Conn, err error) 
 			Mark:    magicNetwork.Mark,
 			Mptcp:   magicNetwork.Mptcp,
 		}.Encode()
-		conn, err := d.nextDialer.Dial(tcpNetwork, d.proxyAddress)
+		conn, err := d.nextDialer.DialContext(ctx, tcpNetwork, d.proxyAddress)
 		if err != nil {
 			return nil, err
 		}

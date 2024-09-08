@@ -50,7 +50,7 @@ func TestTcp(t *testing.T) {
 
 	c := http.Client{
 		Transport: &http.Transport{Dial: func(network string, addr string) (net.Conn, error) {
-			c, err := d.Dial("tcp", addr)
+			c, err := d.DialContext(context.Background(), "tcp", addr)
 			if err != nil {
 				return nil, err
 			}
@@ -99,7 +99,7 @@ func TestUdp(t *testing.T) {
 			if !strings.HasPrefix(network, "udp") {
 				return nil, fmt.Errorf("unsupported network")
 			}
-			c, err := d.Dial("udp", address)
+			c, err := d.DialContext(ctx, "udp", address)
 			if err != nil {
 				return nil, err
 			}

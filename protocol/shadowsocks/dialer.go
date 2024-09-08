@@ -1,6 +1,7 @@
 package shadowsocks
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/daeuniverse/outbound/ciphers"
@@ -33,7 +34,7 @@ func NewDialer(nextDialer netproxy.Dialer, header protocol.Header) (netproxy.Dia
 	}, nil
 }
 
-func (d *Dialer) Dial(network, addr string) (netproxy.Conn, error) {
+func (d *Dialer) DialContext(ctx context.Context, network, addr string) (netproxy.Conn, error) {
 	magicNetwork, err := netproxy.ParseMagicNetwork(network)
 	if err != nil {
 		return nil, err
@@ -48,7 +49,7 @@ func (d *Dialer) Dial(network, addr string) (netproxy.Conn, error) {
 		mdata.IsClient = d.metadata.IsClient
 
 		// Shadowsocks transfer TCP traffic via TCP tunnel.
-		conn, err := d.nextDialer.Dial(network, d.proxyAddress)
+		conn, err := d.nextDialer.DialContext(ctx, network, d.proxyAddress)
 		if err != nil {
 			return nil, err
 		}
@@ -63,7 +64,7 @@ func (d *Dialer) Dial(network, addr string) (netproxy.Conn, error) {
 
 		// Shadowsocks transfer UDP traffic via UDP tunnel.
 		magicNetwork.Network = "udp"
-		conn, err := d.nextDialer.Dial(magicNetwork.Encode(), d.proxyAddress)
+		conn, err := d.nextDialer.DialContext(ctx, magicNetwork.Encode(), d.proxyAddress)
 		if err != nil {
 			return nil, err
 		}

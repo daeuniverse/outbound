@@ -168,10 +168,6 @@ func NewReality(s string, d netproxy.Dialer) (*Reality, error) {
 	return x, nil
 }
 
-func (x *Reality) Dial(network, addr string) (c netproxy.Conn, err error) {
-	return x.DialContext(context.Background(), network, addr)
-}
-
 func (x *Reality) DialContext(ctx context.Context, network, addr string) (c netproxy.Conn, err error) {
 	magicNetwork, err := netproxy.ParseMagicNetwork(network)
 	if err != nil {
@@ -180,7 +176,7 @@ func (x *Reality) DialContext(ctx context.Context, network, addr string) (c netp
 	switch magicNetwork.Network {
 	case "tcp":
 		// logrus.Printf("%#v, %T, %v", x.nextDialer, magicNetwork.Network, addr)
-		c, err := x.nextDialer.Dial(network, addr)
+		c, err := x.nextDialer.DialContext(ctx, network, addr)
 		if err != nil {
 			return nil, fmt.Errorf("[REALITY]: dial to %s: %w", addr, err)
 		}

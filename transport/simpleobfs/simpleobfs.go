@@ -1,6 +1,7 @@
 package simpleobfs
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/url"
@@ -63,14 +64,14 @@ func NewSimpleObfs(option *dialer.ExtraOption, nextDialer netproxy.Dialer, link 
 	}, nil
 }
 
-func (s *SimpleObfs) Dial(network, addr string) (c netproxy.Conn, err error) {
+func (s *SimpleObfs) DialContext(ctx context.Context, network, addr string) (c netproxy.Conn, err error) {
 	magicNetwork, err := netproxy.ParseMagicNetwork(network)
 	if err != nil {
 		return nil, err
 	}
 	switch magicNetwork.Network {
 	case "tcp":
-		rc, err := s.dialer.Dial(network, s.addr)
+		rc, err := s.dialer.DialContext(ctx, network, s.addr)
 		if err != nil {
 			return nil, fmt.Errorf("[simpleobfs]: dial to %s: %w", s.addr, err)
 		}
@@ -90,7 +91,7 @@ func (s *SimpleObfs) Dial(network, addr string) (c netproxy.Conn, err error) {
 		}
 		return c, err
 	case "udp":
-		return s.dialer.Dial(network, s.addr)
+		return s.dialer.DialContext(ctx, network, s.addr)
 	default:
 		return nil, fmt.Errorf("%w: %v", netproxy.UnsupportedTunnelTypeError, network)
 	}
