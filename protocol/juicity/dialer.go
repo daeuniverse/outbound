@@ -105,6 +105,8 @@ func (d *Dialer) dialFuncFactory(udpNetwork string, rAddr net.Addr) common.DialF
 }
 
 func (d *Dialer) Dial(network string, addr string) (c netproxy.Conn, err error) {
+	ctx, cancel := netproxy.NewDialTimeoutContext()
+	defer cancel()
 	magicNetwork, err := netproxy.ParseMagicNetwork(network)
 	if err != nil {
 		return nil, err
@@ -159,7 +161,7 @@ func (d *Dialer) Dial(network string, addr string) (c netproxy.Conn, err error) 
 				}, nil
 			}
 		}
-		conn, err := d.clientRing.Dial(&trojanc.Metadata{
+		conn, err := d.clientRing.DialContext(ctx, &trojanc.Metadata{
 			Metadata: mdata,
 			Network:  magicNetwork.Network,
 		}, d.nextDialer,
@@ -195,11 +197,13 @@ func underlayKey(psk []byte) (key *shadowsocks.Key, err error) {
 }
 
 func (d *Dialer) DialCmdMsg(cmd protocol.MetadataCmd) (c netproxy.Conn, err error) {
+	ctx, cancel := netproxy.NewDialTimeoutContext()
+	defer cancel()
 	proxyAddr, err := net.ResolveUDPAddr("udp", d.proxyAddress)
 	if err != nil {
 		return nil, err
 	}
-	conn, err := d.clientRing.Dial(&trojanc.Metadata{
+	conn, err := d.clientRing.DialContext(ctx, &trojanc.Metadata{
 		Metadata: protocol.Metadata{
 			Type:     protocol.MetadataTypeMsg,
 			Cmd:      cmd,

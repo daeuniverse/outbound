@@ -2,6 +2,7 @@ package juicity
 
 import (
 	"container/list"
+	"context"
 	"errors"
 	"strings"
 	"sync"
@@ -36,7 +37,7 @@ func newClientRing(newClient func(capabilityCallback func(n int64)) *clientImpl,
 	}
 }
 
-func (r *clientRing) Dial(metadata *trojanc.Metadata, dialer netproxy.Dialer, dialFn common.DialFunc) (conn *Conn, err error) {
+func (r *clientRing) DialContext(ctx context.Context, metadata *trojanc.Metadata, dialer netproxy.Dialer, dialFn common.DialFunc) (conn *Conn, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	newCurrent := r.current
@@ -45,7 +46,7 @@ func (r *clientRing) Dial(metadata *trojanc.Metadata, dialer netproxy.Dialer, di
 		if cap != -1 && cap <= r.reserved {
 			return common.ErrHoldOn
 		}
-		conn, err = node.cli.Dial(metadata, dialer, dialFn)
+		conn, err = node.cli.DialContext(ctx, metadata, dialer, dialFn)
 		return err
 	})
 	r.current = newCurrent

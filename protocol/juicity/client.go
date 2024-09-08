@@ -177,13 +177,15 @@ func (t *clientImpl) Close() (err error) {
 	return err
 }
 
-func (t *clientImpl) Dial(metadata *trojanc.Metadata, dialer netproxy.Dialer, dialFn common.DialFunc) (*Conn, error) {
+func (t *clientImpl) DialContext(ctx context.Context, metadata *trojanc.Metadata, dialer netproxy.Dialer, dialFn common.DialFunc) (*Conn, error) {
 	select {
 	case <-t.Ctx.Done():
 		return nil, common.ErrClientClosed
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	default:
 	}
-	quicConn, err := t.getQuicConn(t.Ctx, dialer, dialFn)
+	quicConn, err := t.getQuicConn(ctx, dialer, dialFn)
 	if err != nil {
 		return nil, fmt.Errorf("getQuicConn: %w", err)
 	}

@@ -2,7 +2,16 @@ package netproxy
 
 import (
 	"context"
+	"time"
 )
+
+var (
+	DialTimeout = 10 * time.Second
+)
+
+func NewDialTimeoutContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), DialTimeout)
+}
 
 // A Dialer is a means to establish a connection.
 // Custom dialers should also implement ContextDialer.
