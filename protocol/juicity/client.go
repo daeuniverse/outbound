@@ -207,13 +207,15 @@ func (t *clientImpl) DialContext(ctx context.Context, metadata *trojanc.Metadata
 	)
 	return stream, nil
 }
-func (t *clientImpl) DialAuth(metadata *trojanc.Metadata, dialer netproxy.Dialer, dialFn common.DialFunc) (iv []byte, psk []byte, err error) {
+func (t *clientImpl) DialAuth(ctx context.Context, metadata *trojanc.Metadata, dialer netproxy.Dialer, dialFn common.DialFunc) (iv []byte, psk []byte, err error) {
 	select {
 	case <-t.Ctx.Done():
 		return nil, nil, common.ErrClientClosed
+	case <-ctx.Done():
+		return nil, nil, ctx.Err()
 	default:
 	}
-	_, err = t.getQuicConn(t.Ctx, dialer, dialFn)
+	_, err = t.getQuicConn(ctx, dialer, dialFn)
 	if err != nil {
 		return nil, nil, fmt.Errorf("getQuicConn: %w", err)
 	}

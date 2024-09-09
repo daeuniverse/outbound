@@ -131,7 +131,7 @@ func (d *Dialer) DialContext(ctx context.Context, network string, addr string) (
 			switch mdata.Port {
 			// case 443, 8443, 5201:
 			case 0:
-				iv, psk, err := d.clientRing.DialAuth(&trojanc.Metadata{
+				iv, psk, err := d.clientRing.DialAuth(ctx, &trojanc.Metadata{
 					Metadata: mdata,
 					Network:  magicNetwork.Network,
 				}, d.nextDialer, d.dialFuncFactory(udpNetwork, proxyAddr))

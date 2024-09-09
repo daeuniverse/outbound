@@ -53,7 +53,7 @@ func (r *clientRing) DialContext(ctx context.Context, metadata *trojanc.Metadata
 	return conn, err
 }
 
-func (r *clientRing) DialAuth(metadata *trojanc.Metadata, dialer netproxy.Dialer, dialFn common.DialFunc) (iv []byte, psk []byte, err error) {
+func (r *clientRing) DialAuth(ctx context.Context, metadata *trojanc.Metadata, dialer netproxy.Dialer, dialFn common.DialFunc) (iv []byte, psk []byte, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	newCurrent := r.current
@@ -62,7 +62,7 @@ func (r *clientRing) DialAuth(metadata *trojanc.Metadata, dialer netproxy.Dialer
 		if cap != -1 && cap <= r.reserved {
 			return common.ErrHoldOn
 		}
-		iv, psk, err = node.cli.DialAuth(metadata, dialer, dialFn)
+		iv, psk, err = node.cli.DialAuth(ctx, metadata, dialer, dialFn)
 		return err
 	})
 	r.current = newCurrent
