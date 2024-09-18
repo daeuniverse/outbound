@@ -5,7 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
-	"errors"
+	"fmt"
 	"net"
 	"net/url"
 	"strconv"
@@ -57,15 +57,17 @@ func (s *Hysteria2) Dialer(option *dialer.ExtraOption, nextDialer netproxy.Diale
 	if s.PinSHA256 != "" {
 		nHash := normalizeCertHash(s.PinSHA256)
 		header.TlsConfig.VerifyPeerCertificate = func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
+			certHashes := make([]string, 0, len(rawCerts))
 			for _, cert := range rawCerts {
 				hash := sha256.Sum256(cert)
 				hashHex := hex.EncodeToString(hash[:])
+				certHashes = append(certHashes, hashHex)
 				if hashHex == nHash {
 					return nil
 				}
 			}
 			// No match
-			return errors.New("no certificate matches the pinned hash")
+			return fmt.Errorf("no matching certificate found, %s not in %v", nHash, certHashes)
 		}
 	}
 	var err error
