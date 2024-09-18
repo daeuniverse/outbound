@@ -31,6 +31,8 @@ type Hysteria2 struct {
 	Insecure  bool
 	Sni       string
 	PinSHA256 string
+	MaxTx     uint64
+	MaxRx     uint64
 }
 
 func NewHysteria2(option *dialer.ExtraOption, nextDialer netproxy.Dialer, link string) (netproxy.Dialer, *dialer.Property, error) {
@@ -54,6 +56,9 @@ func (s *Hysteria2) Dialer(option *dialer.ExtraOption, nextDialer netproxy.Diale
 		User:     s.User,
 		Password: s.Password,
 		IsClient: true,
+	}
+	if header.SNI == "" {
+		header.SNI = s.Server
 	}
 	if option.BandwidthMaxRx > 0 && option.BandwidthMaxTx > 0 {
 		header.Feature1 = &client.BandwidthConfig{
@@ -109,12 +114,23 @@ func ParseHysteria2URL(link string) (*Hysteria2, error) {
 	}
 	q := t.Query()
 	sni := q.Get("sni")
-	if sni == "" {
-		sni = t.Hostname()
+	var insecure bool
+	if insecureValue := q.Get("insecure"); insecureValue != "" {
+		insecure, err = strconv.ParseBool(q.Get("insecure"))
+		if err != nil {
+			return nil, dialer.InvalidParameterErr
+		}
 	}
-	insecure, err := strconv.ParseBool(q.Get("insecure"))
-	if err != nil {
-		return nil, dialer.InvalidParameterErr
+	var maxTx, maxRx uint64
+	if q.Get("maxTx") != "" && q.Get("maxRx") != "" {
+		maxTx, err = strconv.ParseUint(q.Get("maxTx"), 10, 64)
+		if err != nil {
+			return nil, dialer.InvalidParameterErr
+		}
+		maxRx, err = strconv.ParseUint(q.Get("maxRx"), 10, 64)
+		if err != nil {
+			return nil, dialer.InvalidParameterErr
+		}
 	}
 	conf := &Hysteria2{
 		Name:      t.Fragment,
@@ -124,6 +140,8 @@ func ParseHysteria2URL(link string) (*Hysteria2, error) {
 		Insecure:  insecure,
 		Sni:       sni,
 		PinSHA256: q.Get("pinSHA256"),
+		MaxTx:     maxTx,
+		MaxRx:     maxRx,
 	}
 	conf.Password, _ = t.User.Password()
 	return conf, nil
@@ -148,6 +166,10 @@ func (s *Hysteria2) ExportToURL() string {
 	}
 	if s.PinSHA256 != "" {
 		q.Set("pinSHA256", s.PinSHA256)
+	}
+	if s.MaxTx > 0 && s.MaxRx > 0 {
+		q.Set("maxTx", strconv.FormatUint(s.MaxTx, 10))
+		q.Set("maxRx", strconv.FormatUint(s.MaxRx, 10))
 	}
 	t.RawQuery = q.Encode()
 	return t.String()
