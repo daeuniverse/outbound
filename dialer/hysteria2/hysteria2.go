@@ -112,12 +112,16 @@ func ParseHysteria2URL(link string) (*Hysteria2, error) {
 	if sni == "" {
 		sni = t.Hostname()
 	}
+	insecure, err := strconv.ParseBool(q.Get("insecure"))
+	if err != nil {
+		return nil, dialer.InvalidParameterErr
+	}
 	conf := &Hysteria2{
 		Name:      t.Fragment,
 		User:      t.User.Username(),
 		Server:    t.Hostname(),
 		Port:      port,
-		Insecure:  q.Get("insecure") == "1",
+		Insecure:  insecure,
 		Sni:       sni,
 		PinSHA256: q.Get("pinSHA256"),
 	}
