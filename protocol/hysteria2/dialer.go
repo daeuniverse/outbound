@@ -23,13 +23,7 @@ func NewDialer(nextDialer netproxy.Dialer, header protocol.Header) (netproxy.Dia
 		IsClient: header.IsClient,
 	}
 
-	serverAddr, err := net.ResolveUDPAddr("udp", header.ProxyAddress)
-	if err != nil {
-		return nil, err
-	}
-
 	config := &client.Config{
-		ServerAddr: serverAddr,
 		TLSConfig: client.TLSConfig{
 			ServerName:            header.TlsConfig.ServerName,
 			InsecureSkipVerify:    header.TlsConfig.InsecureSkipVerify,
@@ -44,7 +38,13 @@ func NewDialer(nextDialer netproxy.Dialer, header protocol.Header) (netproxy.Dia
 
 	client, err := client.NewReconnectableClient(
 		func() (*client.Config, error) {
-			return config, nil
+			serverAddr, err := net.ResolveUDPAddr("udp", header.ProxyAddress)
+			if err != nil {
+				return nil, err
+			}
+			newConfig := *config
+			newConfig.ServerAddr = serverAddr
+			return &newConfig, nil
 		},
 		func(c client.Client, hi *client.HandshakeInfo, i int) {
 			// Do nothing
