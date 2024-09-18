@@ -14,6 +14,7 @@ import (
 	"github.com/daeuniverse/outbound/dialer"
 	"github.com/daeuniverse/outbound/netproxy"
 	"github.com/daeuniverse/outbound/protocol"
+	"github.com/daeuniverse/outbound/protocol/hysteria2/client"
 )
 
 func init() {
@@ -53,6 +54,12 @@ func (s *Hysteria2) Dialer(option *dialer.ExtraOption, nextDialer netproxy.Diale
 		User:     s.User,
 		Password: s.Password,
 		IsClient: true,
+	}
+	if option.BandwidthMaxRx > 0 && option.BandwidthMaxTx > 0 {
+		header.Feature1 = &client.BandwidthConfig{
+			MaxRx: option.BandwidthMaxRx,
+			MaxTx: option.BandwidthMaxTx,
+		}
 	}
 	if s.PinSHA256 != "" {
 		nHash := normalizeCertHash(s.PinSHA256)
