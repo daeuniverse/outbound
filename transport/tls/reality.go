@@ -1,6 +1,6 @@
 // Modified from https://github.com/Reality/Xray-core/blob/fbc56b88da2808e3181add4935c143e319772c93/transport/internet/reality/reality.go
 
-package xtls
+package tls
 
 import (
 	"bytes"
@@ -15,7 +15,9 @@ import (
 	"crypto/sha512"
 	gotls "crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -32,28 +34,32 @@ import (
 	"unsafe"
 
 	"github.com/daeuniverse/outbound/netproxy"
-	"github.com/daeuniverse/outbound/pkg/logger"
-	"github.com/daeuniverse/outbound/transport/tls"
 	utls "github.com/refraction-networking/utls"
-	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/hkdf"
 	"golang.org/x/net/http2"
 )
 
+var (
+	Reality_Version_x byte = 1
+	Reality_Version_y byte = 8
+	Reality_Version_z byte = 10
+)
+
 //go:linkname aesgcmPreferred github.com/refraction-networking/utls.aesgcmPreferred
 func aesgcmPreferred(ciphers []uint16) bool
 
-type UConn struct {
+type RealityUConn struct {
 	*utls.UConn
 	ServerName string
 	AuthKey    []byte
 	Verified   bool
 }
 
-func (c *UConn) VerifyPeerCertificate(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
-	p, _ := reflect.TypeOf(c.Conn).Elem().FieldByName("peerCertificates")
-	certs := *(*([]*x509.Certificate))(unsafe.Pointer(uintptr(unsafe.Pointer(c.Conn)) + p.Offset))
+var p, _ = reflect.TypeOf((*utls.Conn)(nil)).Elem().FieldByName("peerCertificates")
+
+func (c *RealityUConn) VerifyPeerCertificate(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+	certs := *(*[]*x509.Certificate)(unsafe.Add(unsafe.Pointer(c.Conn), p.Offset))
 	if pub, ok := certs[0].PublicKey.(ed25519.PublicKey); ok {
 		h := hmac.New(sha512.New, c.AuthKey)
 		h.Write(pub)
@@ -81,8 +87,8 @@ type Reality struct {
 	nextDialer  netproxy.Dialer
 	serverName  string
 	fingerprint *utls.ClientHelloID
-	shortId     string
-	publicKey   []byte
+	shortId     [8]byte
+	publicKey   *ecdh.PublicKey
 	spiderX     string
 	spiderY     []int64
 }
@@ -99,10 +105,23 @@ func NewReality(s string, d netproxy.Dialer) (*Reality, error) {
 
 	query := u.Query()
 	x.serverName = query.Get("sni")
-	x.shortId = query.Get("sid")
+	_, err = hex.Decode(x.shortId[:], []byte(query.Get("sid")))
+	if err != nil {
+		return nil, fmt.Errorf("invalid reality sid")
+	}
 	_publicKey := query.Get("pbk")
-	x.publicKey = []byte(_publicKey)
+	const x25519ScalarSize = 32
+	var publicKey [x25519ScalarSize]byte
+	_, err = base64.RawURLEncoding.Decode(publicKey[:], []byte(_publicKey))
+	if err != nil {
+		return nil, fmt.Errorf("invalid reality pbk")
+	}
+	x.publicKey, err = ecdh.X25519().NewPublicKey(publicKey[:])
+	if err != nil {
+		return nil, fmt.Errorf("REALITY: publicKey == nil: %w", err)
+	}
 	x.spiderX, _ = url.QueryUnescape(query.Get("spx"))
+	_fingerprint := query.Get("fp")
 
 	if x.serverName == "" {
 		x.serverName = u.Hostname()
@@ -110,8 +129,7 @@ func NewReality(s string, d netproxy.Dialer) (*Reality, error) {
 		x.serverName = ""
 	}
 
-	_fingerprint := query.Get("fp")
-	x.fingerprint, err = tls.NameToUtlsClientHelloID(_fingerprint)
+	x.fingerprint, err = nameToUtlsClientHelloID(_fingerprint)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get fingerprint: %w", err)
 	}
@@ -145,8 +163,8 @@ func NewReality(s string, d netproxy.Dialer) (*Reality, error) {
 	parse("r", 8) // return
 	u.RawQuery = q.Encode()
 	x.spiderX = tmpU.String()
-	x.infoWriter = logger.Logger.WriterLevel(logrus.InfoLevel)
-
+	// x.infoWriter = logger.Logger.WriterLevel(logrus.TraceLevel)
+	// logrus.Printf("%#v", x)
 	return x, nil
 }
 
@@ -161,11 +179,14 @@ func (x *Reality) DialContext(ctx context.Context, network, addr string) (c netp
 	}
 	switch magicNetwork.Network {
 	case "tcp":
+		// logrus.Printf("%#v, %T, %v", x.nextDialer, magicNetwork.Network, addr)
 		c, err := x.nextDialer.Dial(network, addr)
 		if err != nil {
 			return nil, fmt.Errorf("[REALITY]: dial to %s: %w", addr, err)
 		}
-		uConn := &UConn{}
+		retry := 0
+	retryHandshake:
+		uConn := &RealityUConn{}
 		utlsConfig := &utls.Config{
 			VerifyPeerCertificate:  uConn.VerifyPeerCertificate,
 			ServerName:             x.serverName,
@@ -180,24 +201,32 @@ func (x *Reality) DialContext(ctx context.Context, network, addr string) (c netp
 			RAddr: nil,
 		}, utlsConfig, *x.fingerprint)
 		{
-			uConn.BuildHandshakeState()
+			err = uConn.BuildHandshakeState()
+			if err != nil {
+				return nil, err
+			}
 			hello := uConn.HandshakeState.Hello
 			hello.SessionId = make([]byte, 32)
 			copy(hello.Raw[39:], hello.SessionId) // the fixed location of `Session ID`
-			hello.SessionId[0] = Version_x
-			hello.SessionId[1] = Version_y
-			hello.SessionId[2] = Version_z
+			hello.SessionId[0] = Reality_Version_x
+			hello.SessionId[1] = Reality_Version_y
+			hello.SessionId[2] = Reality_Version_z
 			hello.SessionId[3] = 0 // reserved
 			binary.BigEndian.PutUint32(hello.SessionId[4:], uint32(time.Now().Unix()))
-			copy(hello.SessionId[8:], x.shortId)
+			copy(hello.SessionId[8:], x.shortId[:])
 			// if config.Show {
-			// 	newError(fmt.Sprintf("REALITY localAddr: %v\thello.SessionId[:16]: %v\n", localAddr, hello.SessionId[:16])).WriteToLog(session.ExportIDToError(ctx))
+			// logrus.Printf("REALITY hello.SessionId[:16]: %v\n", hello.SessionId[:16])
 			// }
-			publicKey, err := ecdh.X25519().NewPublicKey(x.publicKey)
-			if err != nil {
-				return nil, errors.New("REALITY: publicKey == nil")
+			if uConn.HandshakeState.State13.EcdheKey == nil {
+				// logrus.Println("wtf", retry, addr)
+				if retry > 2 {
+					return nil, errors.New("nil ecdheKey")
+				}
+				retry++
+				goto retryHandshake // retry
 			}
-			uConn.AuthKey, _ = uConn.HandshakeState.State13.EcdheKey.ECDH(publicKey)
+			// logrus.Println("OH YEAH", retry)
+			uConn.AuthKey, _ = uConn.HandshakeState.State13.EcdheKey.ECDH(x.publicKey)
 			if uConn.AuthKey == nil {
 				return nil, errors.New("REALITY: SharedKey == nil")
 			}
@@ -212,18 +241,21 @@ func (x *Reality) DialContext(ctx context.Context, network, addr string) (c netp
 				aead, _ = chacha20poly1305.New(uConn.AuthKey)
 			}
 			// if config.Show {
-			// 	newError(fmt.Sprintf("REALITY localAddr: %v\tuConn.AuthKey[:16]: %v\tAEAD: %T\n", localAddr, uConn.AuthKey[:16], aead)).WriteToLog(session.ExportIDToError(ctx))
+			// logrus.Printf("REALITY uConn.AuthKey[:16]: %v\tAEAD: %T\n", uConn.AuthKey[:16], aead)
 			// }
 			aead.Seal(hello.SessionId[:0], hello.Random[20:], hello.SessionId[:16], hello.Raw)
 			copy(hello.Raw[39:], hello.SessionId)
 		}
+		// logrus.Println("00")
 		if err := uConn.HandshakeContext(ctx); err != nil {
 			return nil, err
 		}
 		// if config.Show {
 		// 	newError(fmt.Sprintf("REALITY localAddr: %v\tuConn.Verified: %v\n", localAddr, uConn.Verified)).WriteToLog(session.ExportIDToError(ctx))
 		// }
+		// logrus.Println("11", uConn.Verified)
 		if !uConn.Verified {
+			// Trigger spider.
 			go func() {
 				client := &http.Client{
 					Transport: &http2.Transport{
@@ -263,6 +295,7 @@ func (x *Reality) DialContext(ctx context.Context, network, addr string) (c netp
 					// if first && config.Show {
 					// 	newError(fmt.Sprintf("REALITY localAddr: %v\treq.UserAgent(): %v\n", localAddr, req.UserAgent())).WriteToLog(session.ExportIDToError(ctx))
 					// }
+					// logrus.Printf("session %#v", uConn.HandshakeState.Session)
 					times := 1
 					if !first {
 						times = int(randBetween(x.spiderY[4], x.spiderY[5]))

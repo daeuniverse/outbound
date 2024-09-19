@@ -36,7 +36,7 @@ func NewTls(option *dialer.ExtraOption, nextDialer netproxy.Dialer, link string)
 
 	tlsImplentation := u.Scheme
 	utlsImitate := query.Get("utlsImitate")
-	if tlsImplentation == "tls" && option.TlsImplementation != "" {
+	if (tlsImplentation == "tls" || tlsImplentation == "") && option.TlsImplementation != "" {
 		tlsImplentation = option.TlsImplementation
 		utlsImitate = option.UtlsImitate
 	}
@@ -106,7 +106,7 @@ func (s *Tls) Dial(network, addr string) (c netproxy.Conn, err error) {
 			}, s.tlsConfig)
 
 		case "utls":
-			clientHelloID, err := NameToUtlsClientHelloID(s.utlsImitate)
+			clientHelloID, err := nameToUtlsClientHelloID(s.utlsImitate)
 			if err != nil {
 				return nil, err
 			}
