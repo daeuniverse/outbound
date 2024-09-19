@@ -36,7 +36,7 @@ func NewDialer(nextDialer netproxy.Dialer, header protocol.Header) (netproxy.Dia
 		config.Auth = header.User + ":" + header.Password
 	}
 	if feature := header.Feature1; feature != nil {
-		config.BandwidthConfig = feature.(client.BandwidthConfig)
+		config.BandwidthConfig = *feature.(*client.BandwidthConfig)
 	}
 
 	client, err := client.NewReconnectableClient(
