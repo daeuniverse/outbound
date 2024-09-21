@@ -60,7 +60,12 @@ func (s *Hysteria2) Dialer(option *dialer.ExtraOption, nextDialer netproxy.Diale
 	if header.SNI == "" {
 		header.SNI = s.Server
 	}
-	if option.BandwidthMaxRx > 0 && option.BandwidthMaxTx > 0 {
+	if s.MaxTx > 0 && s.MaxRx > 0 {
+		header.Feature1 = &client.BandwidthConfig{
+			MaxRx: s.MaxRx,
+			MaxTx: s.MaxTx,
+		}
+	} else if option.BandwidthMaxRx > 0 && option.BandwidthMaxTx > 0 {
 		header.Feature1 = &client.BandwidthConfig{
 			MaxRx: option.BandwidthMaxRx,
 			MaxTx: option.BandwidthMaxTx,
