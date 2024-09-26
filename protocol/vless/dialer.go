@@ -49,7 +49,7 @@ func NewDialer(nextDialer netproxy.Dialer, header protocol.Header) (netproxy.Dia
 		proxyAddress: header.ProxyAddress,
 		nextDialer:   nextDialer,
 		metadata:     metadata,
-		flow:         flow,
+		flow:         flow.(string),
 		// xudp:         header.Flags&protocol.Flags_VMess_UsePacketAddr == 0,
 		// xudp: true,
 		key: id,

@@ -5,7 +5,7 @@ import "crypto/tls"
 type Header struct {
 	ProxyAddress string
 	SNI          string
-	Feature1     string
+	Feature1     interface{}
 	TlsConfig    *tls.Config
 	Cipher       string
 	User         string

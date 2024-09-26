@@ -47,7 +47,7 @@ func NewDialer(nextDialer netproxy.Dialer, header protocol.Header) (netproxy.Dia
 	return &Dialer{
 		proxyAddress:      header.ProxyAddress,
 		proxySNI:          header.SNI,
-		grpcServiceName:   header.Feature1,
+		grpcServiceName:   header.Feature1.(string),
 		nextDialer:        nextDialer,
 		metadata:          metadata,
 		key:               NewID(id).CmdKey(),

@@ -5,7 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
-	"errors"
+	"fmt"
 	"net"
 	"net/url"
 	"strconv"
@@ -14,6 +14,7 @@ import (
 	"github.com/daeuniverse/outbound/dialer"
 	"github.com/daeuniverse/outbound/netproxy"
 	"github.com/daeuniverse/outbound/protocol"
+	"github.com/daeuniverse/outbound/protocol/hysteria2/client"
 )
 
 func init() {
@@ -30,6 +31,8 @@ type Hysteria2 struct {
 	Insecure  bool
 	Sni       string
 	PinSHA256 string
+	MaxTx     uint64
+	MaxRx     uint64
 }
 
 func NewHysteria2(option *dialer.ExtraOption, nextDialer netproxy.Dialer, link string) (netproxy.Dialer, *dialer.Property, error) {
@@ -54,18 +57,34 @@ func (s *Hysteria2) Dialer(option *dialer.ExtraOption, nextDialer netproxy.Diale
 		Password: s.Password,
 		IsClient: true,
 	}
+	if header.SNI == "" {
+		header.SNI = s.Server
+	}
+	if s.MaxTx > 0 && s.MaxRx > 0 {
+		header.Feature1 = &client.BandwidthConfig{
+			MaxRx: s.MaxRx,
+			MaxTx: s.MaxTx,
+		}
+	} else if option.BandwidthMaxRx > 0 && option.BandwidthMaxTx > 0 {
+		header.Feature1 = &client.BandwidthConfig{
+			MaxRx: option.BandwidthMaxRx,
+			MaxTx: option.BandwidthMaxTx,
+		}
+	}
 	if s.PinSHA256 != "" {
 		nHash := normalizeCertHash(s.PinSHA256)
 		header.TlsConfig.VerifyPeerCertificate = func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
+			certHashes := make([]string, 0, len(rawCerts))
 			for _, cert := range rawCerts {
 				hash := sha256.Sum256(cert)
 				hashHex := hex.EncodeToString(hash[:])
+				certHashes = append(certHashes, hashHex)
 				if hashHex == nHash {
 					return nil
 				}
 			}
 			// No match
-			return errors.New("no certificate matches the pinned hash")
+			return fmt.Errorf("no matching certificate found, %s not in %v", nHash, certHashes)
 		}
 	}
 	var err error
@@ -100,17 +119,34 @@ func ParseHysteria2URL(link string) (*Hysteria2, error) {
 	}
 	q := t.Query()
 	sni := q.Get("sni")
-	if sni == "" {
-		sni = t.Hostname()
+	var insecure bool
+	if insecureValue := q.Get("insecure"); insecureValue != "" {
+		insecure, err = strconv.ParseBool(q.Get("insecure"))
+		if err != nil {
+			return nil, dialer.InvalidParameterErr
+		}
+	}
+	var maxTx, maxRx uint64
+	if q.Get("maxTx") != "" && q.Get("maxRx") != "" {
+		maxTx, err = strconv.ParseUint(q.Get("maxTx"), 10, 64)
+		if err != nil {
+			return nil, dialer.InvalidParameterErr
+		}
+		maxRx, err = strconv.ParseUint(q.Get("maxRx"), 10, 64)
+		if err != nil {
+			return nil, dialer.InvalidParameterErr
+		}
 	}
 	conf := &Hysteria2{
 		Name:      t.Fragment,
 		User:      t.User.Username(),
 		Server:    t.Hostname(),
 		Port:      port,
-		Insecure:  q.Get("insecure") == "1",
+		Insecure:  insecure,
 		Sni:       sni,
 		PinSHA256: q.Get("pinSHA256"),
+		MaxTx:     maxTx,
+		MaxRx:     maxRx,
 	}
 	conf.Password, _ = t.User.Password()
 	return conf, nil
@@ -135,6 +171,10 @@ func (s *Hysteria2) ExportToURL() string {
 	}
 	if s.PinSHA256 != "" {
 		q.Set("pinSHA256", s.PinSHA256)
+	}
+	if s.MaxTx > 0 && s.MaxRx > 0 {
+		q.Set("maxTx", strconv.FormatUint(s.MaxTx, 10))
+		q.Set("maxRx", strconv.FormatUint(s.MaxRx, 10))
 	}
 	t.RawQuery = q.Encode()
 	return t.String()

@@ -60,7 +60,7 @@ func NewDialer(nextDialer netproxy.Dialer, header protocol.Header) (netproxy.Dia
 					Uuid:                  id,
 					Password:              header.Password,
 					UdpRelayMode:          udpRelayMode,
-					CongestionController:  header.Feature1,
+					CongestionController:  header.Feature1.(string),
 					ReduceRtt:             false,
 					CWND:                  10,
 					MaxUdpRelayPacketSize: maxDatagramFrameSize,
