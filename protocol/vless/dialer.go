@@ -42,6 +42,7 @@ func NewDialer(nextDialer netproxy.Dialer, header protocol.Header) (netproxy.Dia
 		if !metadata.IsClient {
 			return nil, fmt.Errorf("unsupported server mode xtls flow type: %v", flow)
 		}
+	case "":
 	default:
 		return nil, fmt.Errorf("unsupported xtls flow type: %v", flow)
 	}
