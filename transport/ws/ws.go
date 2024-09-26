@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"net"
@@ -77,7 +78,7 @@ func NewWs(option *dialer.ExtraOption, nextDialer netproxy.Dialer, link string) 
 	}, nil
 }
 
-func (s *Ws) Dial(network, addr string) (c netproxy.Conn, err error) {
+func (s *Ws) DialContext(ctx context.Context, network, addr string) (c netproxy.Conn, err error) {
 	magicNetwork, err := netproxy.ParseMagicNetwork(network)
 	if err != nil {
 		return nil, err
@@ -86,7 +87,7 @@ func (s *Ws) Dial(network, addr string) (c netproxy.Conn, err error) {
 	case "tcp":
 		wsDialer := &websocket.Dialer{
 			NetDial: func(_, addr string) (net.Conn, error) {
-				c, err := s.dialer.Dial(network, addr)
+				c, err := s.dialer.DialContext(ctx, network, addr)
 				if err != nil {
 					return nil, err
 				}
@@ -98,14 +99,14 @@ func (s *Ws) Dial(network, addr string) (c netproxy.Conn, err error) {
 			},
 			TLSClientConfig: s.tlsClientConfig,
 		}
-		rc, _, err := wsDialer.Dial(s.wsAddr, s.header)
+		rc, _, err := wsDialer.DialContext(ctx, s.wsAddr, s.header)
 		if err != nil {
 			return nil, fmt.Errorf("[Ws]: dial to %s: %w", s.wsAddr, err)
 		}
 		return newConn(rc), err
 	case "udp":
 		if s.passthroughUdp {
-			return s.dialer.Dial(network, addr)
+			return s.dialer.DialContext(ctx, network, addr)
 		}
 		return nil, fmt.Errorf("%w: ws+udp", netproxy.UnsupportedTunnelTypeError)
 	default:

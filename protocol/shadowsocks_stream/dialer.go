@@ -1,6 +1,7 @@
 package shadowsocks_stream
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/daeuniverse/outbound/ciphers"
@@ -39,7 +40,7 @@ func (d *Dialer) Addr() string {
 	return d.addr
 }
 
-func (d *Dialer) Dial(network, addr string) (netproxy.Conn, error) {
+func (d *Dialer) DialContext(ctx context.Context, network, addr string) (netproxy.Conn, error) {
 	magicNetwork, err := netproxy.ParseMagicNetwork(network)
 	if err != nil {
 		return nil, err
@@ -51,7 +52,7 @@ func (d *Dialer) Dial(network, addr string) (netproxy.Conn, error) {
 			return nil, err
 		}
 
-		conn, err := d.DialTcpTransport(network)
+		conn, err := d.DialTcpTransport(ctx, network)
 		if err != nil {
 			return nil, err
 		}
@@ -75,7 +76,7 @@ func (d *Dialer) Dial(network, addr string) (netproxy.Conn, error) {
 			return nil, err
 		}
 
-		c, err := d.nextDialer.Dial(network, d.addr)
+		c, err := d.nextDialer.DialContext(ctx, network, d.addr)
 		if err != nil {
 			return nil, fmt.Errorf("dial to %v error: %w", d.addr, err)
 		}
@@ -85,13 +86,13 @@ func (d *Dialer) Dial(network, addr string) (netproxy.Conn, error) {
 	}
 }
 
-func (d *Dialer) DialTcpTransport(magicNetwork string) (netproxy.Conn, error) {
+func (d *Dialer) DialTcpTransport(ctx context.Context, magicNetwork string) (netproxy.Conn, error) {
 	ciph, err := ciphers.NewStreamCipher(d.EncryptMethod, d.EncryptPassword)
 	if err != nil {
 		return nil, err
 	}
 
-	c, err := d.nextDialer.Dial(magicNetwork, d.addr)
+	c, err := d.nextDialer.DialContext(ctx, magicNetwork, d.addr)
 	if err != nil {
 		return nil, fmt.Errorf("dial to %v error: %w", d.addr, err)
 	}
@@ -101,8 +102,8 @@ func (d *Dialer) DialTcpTransport(magicNetwork string) (netproxy.Conn, error) {
 	return conn, err
 }
 
-func (d *Dialer) DialUdpTransport(magicNetwork string) (netproxy.PacketConn, error) {
-	conn, err := d.Dial(magicNetwork, TransportMagicAddr)
+func (d *Dialer) DialUdpTransport(ctx context.Context, magicNetwork string) (netproxy.PacketConn, error) {
+	conn, err := d.DialContext(ctx, magicNetwork, TransportMagicAddr)
 	if err != nil {
 		return nil, err
 	}

@@ -37,6 +37,7 @@ type clientImpl struct {
 	*ClientOption
 	udp bool
 
+	underConn net.PacketConn
 	quicConn  quic.Connection
 	connMutex sync.Mutex
 
@@ -64,6 +65,8 @@ func (t *clientImpl) getQuicConn(ctx context.Context, dialer netproxy.Dialer, di
 		quicConn, err = transport.Dial(ctx, addr, t.TlsConfig, t.QuicConfig)
 	}
 	if err != nil {
+		transport.Close()
+		transport.Conn.Close()
 		return nil, err
 	}
 
@@ -82,6 +85,7 @@ func (t *clientImpl) getQuicConn(ctx context.Context, dialer netproxy.Dialer, di
 		_ = t.handleMessage(quicConn) // always handleMessage because tuicV5 using datagram to send the Heartbeat
 	}()
 
+	t.underConn = transport.Conn
 	t.quicConn = quicConn
 	return quicConn, nil
 }
@@ -250,6 +254,10 @@ func (t *clientImpl) forceClose(quicConn quic.Connection, err error) {
 		}
 		if quicConn != nil {
 			_ = quicConn.CloseWithError(ProtocolError, errStr)
+		}
+		if t.underConn != nil {
+			err = t.underConn.Close()
+			t.underConn = nil
 		}
 		t.udpIncomingPacketsMap.Range(func(key, value any) bool {
 			_ = value.(*Packets).Close()

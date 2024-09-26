@@ -1,6 +1,7 @@
 package hysteria2
 
 import (
+	"context"
 	"fmt"
 	"net"
 
@@ -61,7 +62,7 @@ func NewDialer(nextDialer netproxy.Dialer, header protocol.Header) (netproxy.Dia
 	}, nil
 }
 
-func (d *Dialer) Dial(network, address string) (netproxy.Conn, error) {
+func (d *Dialer) DialContext(_ context.Context, network, address string) (netproxy.Conn, error) {
 	magicNetwork, err := netproxy.ParseMagicNetwork(network)
 	if err != nil {
 		return nil, err

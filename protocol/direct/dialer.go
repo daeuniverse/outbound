@@ -41,7 +41,7 @@ func newDirectDialer(fullCone bool) netproxy.Dialer {
 	}
 }
 
-func (d *directDialer) dialUdp(addr string, mark int) (c netproxy.PacketConn, err error) {
+func (d *directDialer) dialUdp(ctx context.Context, addr string, mark int) (c netproxy.PacketConn, err error) {
 	if mark == 0 {
 		if d.fullCone {
 			conn, err := net.ListenUDP("udp", d.udpLocalAddr)
@@ -53,7 +53,7 @@ func (d *directDialer) dialUdp(addr string, mark int) (c netproxy.PacketConn, er
 			dialer := net.Dialer{
 				LocalAddr: d.udpLocalAddr,
 			}
-			conn, err := dialer.Dial("udp", addr)
+			conn, err := dialer.DialContext(ctx, "udp", addr)
 			if err != nil {
 				return nil, err
 			}
@@ -85,7 +85,7 @@ func (d *directDialer) dialUdp(addr string, mark int) (c netproxy.PacketConn, er
 				},
 				LocalAddr: d.udpLocalAddr,
 			}
-			c, err := dialer.Dial("udp", addr)
+			c, err := dialer.DialContext(ctx, "udp", addr)
 			if err != nil {
 				return nil, err
 			}
@@ -105,13 +105,13 @@ func (d *directDialer) dialUdp(addr string, mark int) (c netproxy.PacketConn, er
 	}
 }
 
-func (d *directDialer) dialTcp(addr string, mark int, mptcp bool) (c netproxy.Conn, err error) {
+func (d *directDialer) dialTcp(ctx context.Context, addr string, mark int, mptcp bool) (c netproxy.Conn, err error) {
 	dialer := &net.Dialer{
 		LocalAddr: d.tcpLocalAddr,
 	}
 	dialer.SetMultipathTCP(mptcp)
 	if mark == 0 {
-		return dialer.Dial("tcp", addr)
+		return dialer.DialContext(ctx, "tcp", addr)
 	} else {
 		dialer.Control = func(network, address string, c syscall.RawConn) error {
 			return netproxy.SoMarkControl(c, mark)
@@ -127,20 +127,20 @@ func (d *directDialer) dialTcp(addr string, mark int, mptcp bool) (c netproxy.Co
 				return d.DialContext(ctx, network, address)
 			},
 		}
-		return dialer.Dial("tcp", addr)
+		return dialer.DialContext(ctx, "tcp", addr)
 	}
 }
 
-func (d *directDialer) Dial(network, addr string) (c netproxy.Conn, err error) {
+func (d *directDialer) DialContext(ctx context.Context, network, addr string) (c netproxy.Conn, err error) {
 	magicNetwork, err := netproxy.ParseMagicNetwork(network)
 	if err != nil {
 		return nil, err
 	}
 	switch magicNetwork.Network {
 	case "tcp":
-		return d.dialTcp(addr, int(magicNetwork.Mark), magicNetwork.Mptcp)
+		return d.dialTcp(ctx, addr, int(magicNetwork.Mark), magicNetwork.Mptcp)
 	case "udp":
-		return d.dialUdp(addr, int(magicNetwork.Mark))
+		return d.dialUdp(ctx, addr, int(magicNetwork.Mark))
 	default:
 		return nil, fmt.Errorf("%w: %v", netproxy.UnsupportedTunnelTypeError, network)
 	}

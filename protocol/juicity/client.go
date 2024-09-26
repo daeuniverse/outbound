@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
+	"net"
 	"sync"
 	"time"
 
@@ -82,6 +83,7 @@ type clientImpl struct {
 	*ClientOption
 
 	quicConn  quic.Connection
+	underConn net.PacketConn
 	connMutex sync.Mutex
 
 	detachCallback func()
@@ -99,6 +101,8 @@ func (t *clientImpl) getQuicConn(ctx context.Context, dialer netproxy.Dialer, di
 	}
 	quicConn, err := transport.Dial(ctx, addr, t.TlsConfig, t.QuicConfig)
 	if err != nil {
+		transport.Close()
+		transport.Conn.Close()
 		return nil, err
 	}
 
@@ -110,6 +114,7 @@ func (t *clientImpl) getQuicConn(ctx context.Context, dialer netproxy.Dialer, di
 		}
 	}()
 
+	t.underConn = transport.Conn
 	t.quicConn = quicConn
 	return quicConn, nil
 }
@@ -173,17 +178,23 @@ func (t *clientImpl) Close() (err error) {
 			err = t.quicConn.CloseWithError(tuic.ProtocolError, common.ErrClientClosed.Error())
 			t.quicConn = nil
 		}
+		if t.underConn != nil {
+			err = t.underConn.Close()
+			t.underConn = nil
+		}
 	})
 	return err
 }
 
-func (t *clientImpl) Dial(metadata *trojanc.Metadata, dialer netproxy.Dialer, dialFn common.DialFunc) (*Conn, error) {
+func (t *clientImpl) DialContext(ctx context.Context, metadata *trojanc.Metadata, dialer netproxy.Dialer, dialFn common.DialFunc) (*Conn, error) {
 	select {
 	case <-t.Ctx.Done():
 		return nil, common.ErrClientClosed
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	default:
 	}
-	quicConn, err := t.getQuicConn(t.Ctx, dialer, dialFn)
+	quicConn, err := t.getQuicConn(ctx, dialer, dialFn)
 	if err != nil {
 		return nil, fmt.Errorf("getQuicConn: %w", err)
 	}
@@ -205,13 +216,15 @@ func (t *clientImpl) Dial(metadata *trojanc.Metadata, dialer netproxy.Dialer, di
 	)
 	return stream, nil
 }
-func (t *clientImpl) DialAuth(metadata *trojanc.Metadata, dialer netproxy.Dialer, dialFn common.DialFunc) (iv []byte, psk []byte, err error) {
+func (t *clientImpl) DialAuth(ctx context.Context, metadata *trojanc.Metadata, dialer netproxy.Dialer, dialFn common.DialFunc) (iv []byte, psk []byte, err error) {
 	select {
 	case <-t.Ctx.Done():
 		return nil, nil, common.ErrClientClosed
+	case <-ctx.Done():
+		return nil, nil, ctx.Err()
 	default:
 	}
-	_, err = t.getQuicConn(t.Ctx, dialer, dialFn)
+	_, err = t.getQuicConn(ctx, dialer, dialFn)
 	if err != nil {
 		return nil, nil, fmt.Errorf("getQuicConn: %w", err)
 	}

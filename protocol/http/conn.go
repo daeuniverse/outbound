@@ -253,7 +253,9 @@ func (c *Conn) Write(b []byte) (n int, err error) {
 		}
 
 		if !c.proxy.https {
-			conn, err := c.nextDialer.Dial(c.magicNetwork, c.proxy.Addr)
+			ctx, cancel := netproxy.NewDialTimeoutContext()
+			defer cancel()
+			conn, err := c.nextDialer.DialContext(ctx, c.magicNetwork, c.proxy.Addr)
 			if err != nil {
 				return 0, err
 			}
@@ -274,7 +276,9 @@ func (c *Conn) Write(b []byte) (n int, err error) {
 			c.isH2 = true
 			return n, nil
 		} else {
-			conn, err := c.nextDialer.Dial(c.magicNetwork, c.proxy.Addr)
+			ctx, cancel := netproxy.NewDialTimeoutContext()
+			defer cancel()
+			conn, err := c.nextDialer.DialContext(ctx, c.magicNetwork, c.proxy.Addr)
 			if err != nil {
 				return 0, err
 			}
@@ -399,7 +403,9 @@ func (p *h2ConnsPool) GetConn(nextDialer netproxy.Dialer, addr string, magicNetw
 	}
 
 	// New.
-	rawConn, err := nextDialer.Dial(magicNetwork, addr)
+	ctx, cancel := netproxy.NewDialTimeoutContext()
+	defer cancel()
+	rawConn, err := nextDialer.DialContext(ctx, magicNetwork, addr)
 	if err != nil {
 		return nil, nil, fmt.Errorf("h2ConnsPool.GetClientConn: %w", err)
 	}

@@ -1,6 +1,7 @@
 package tls
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"net/url"
@@ -80,14 +81,14 @@ func NewTls(option *dialer.ExtraOption, nextDialer netproxy.Dialer, link string)
 	}, nil
 }
 
-func (s *Tls) Dial(network, addr string) (c netproxy.Conn, err error) {
+func (s *Tls) DialContext(ctx context.Context, network, addr string) (c netproxy.Conn, err error) {
 	magicNetwork, err := netproxy.ParseMagicNetwork(network)
 	if err != nil {
 		return nil, err
 	}
 	switch magicNetwork.Network {
 	case "tcp":
-		rc, err := s.dialer.Dial(network, s.addr)
+		rc, err := s.dialer.DialContext(ctx, network, s.addr)
 		if err != nil {
 			return nil, fmt.Errorf("[Tls]: dial to %s: %w", s.addr, err)
 		}
@@ -127,7 +128,7 @@ func (s *Tls) Dial(network, addr string) (c netproxy.Conn, err error) {
 		return tlsConn, err
 	case "udp":
 		if s.passthroughUdp {
-			return s.dialer.Dial(network, addr)
+			return s.dialer.DialContext(ctx, network, addr)
 		}
 		return nil, fmt.Errorf("%w: tls+udp", netproxy.UnsupportedTunnelTypeError)
 	default:

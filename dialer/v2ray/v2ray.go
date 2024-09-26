@@ -162,7 +162,7 @@ func (s *V2Ray) Dialer(option *dialer.ExtraOption, nextDialer netproxy.Dialer) (
 			serviceName = "GunService"
 		}
 		d = &grpc.Dialer{
-			NextDialer:    &netproxy.ContextDialerConverter{Dialer: d},
+			NextDialer:    d,
 			ServiceName:   serviceName,
 			ServerName:    sni,
 			AllowInsecure: s.AllowInsecure || option.AllowInsecure,

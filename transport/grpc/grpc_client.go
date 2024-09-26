@@ -296,25 +296,10 @@ func (c *ClientConn) SetWriteDeadline(t time.Time) error {
 }
 
 type Dialer struct {
-	NextDialer    netproxy.ContextDialer
+	NextDialer    netproxy.Dialer
 	ServiceName   string
 	ServerName    string
 	AllowInsecure bool
-}
-
-func (d *Dialer) Dial(network, address string) (netproxy.Conn, error) {
-	magicNetwork, err := netproxy.ParseMagicNetwork(network)
-	if err != nil {
-		return nil, err
-	}
-	switch magicNetwork.Network {
-	case "tcp":
-		return d.DialContext(context.Background(), network, address)
-	case "udp":
-		return nil, fmt.Errorf("%w: udp", netproxy.UnsupportedTunnelTypeError)
-	default:
-		return nil, fmt.Errorf("%w: %v", netproxy.UnsupportedTunnelTypeError, network)
-	}
 }
 
 func (d *Dialer) DialContext(ctx context.Context, network string, address string) (netproxy.Conn, error) {
@@ -344,7 +329,7 @@ func (d *Dialer) DialContext(ctx context.Context, network string, address string
 	return NewClientConn(tun, streamCloser), nil
 }
 
-func getGrpcClientConn(ctx context.Context, tcpDialer netproxy.ContextDialer, serverName string, address string, allowInsecure bool, somark uint32, mptcp bool) (*clientConnMeta, ccCanceller, error) {
+func getGrpcClientConn(ctx context.Context, tcpDialer netproxy.Dialer, serverName string, address string, allowInsecure bool, somark uint32, mptcp bool) (*clientConnMeta, ccCanceller, error) {
 	// allowInsecure?
 	roots, err := cert.GetSystemCertPool()
 	if err != nil {
