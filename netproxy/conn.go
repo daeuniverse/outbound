@@ -50,14 +50,35 @@ func (conn *FakeNetConn) RemoteAddr() net.Addr {
 	return conn.RAddr
 }
 
-type FakeNetPacketConn struct {
+type fakeNetPacketConn struct {
 	PacketConn
 	LAddr net.Addr
 	RAddr net.Addr
 }
 
+type FakeNetPacketConn interface {
+	net.PacketConn
+	net.Conn
+}
+
+func NewFakeNetPacketConn(conn PacketConn, LAddr net.Addr, RAddr net.Addr) FakeNetPacketConn {
+	fakeNetConn := &fakeNetPacketConn{
+		PacketConn: conn,
+		LAddr:      LAddr,
+		RAddr:      RAddr,
+	}
+	if _, ok := conn.(interface {
+		SyscallConn() (syscall.RawConn, error)
+	}); ok {
+		return &fakeNetPacketConn2{
+			fakeNetPacketConn: fakeNetConn,
+		}
+	}
+	return fakeNetConn
+}
+
 // ReadMsgUDP implements quic.OOBCapablePacketConn.
-func (conn *FakeNetPacketConn) ReadMsgUDP(b []byte, oob []byte) (n int, oobn int, flags int, addr *net.UDPAddr, err error) {
+func (conn *fakeNetPacketConn) ReadMsgUDP(b []byte, oob []byte) (n int, oobn int, flags int, addr *net.UDPAddr, err error) {
 	c, ok := conn.PacketConn.(interface {
 		ReadMsgUDP(b []byte, oob []byte) (n int, oobn int, flags int, addr *net.UDPAddr, err error)
 	})
@@ -68,7 +89,7 @@ func (conn *FakeNetPacketConn) ReadMsgUDP(b []byte, oob []byte) (n int, oobn int
 }
 
 // WriteMsgUDP implements quic.OOBCapablePacketConn.
-func (conn *FakeNetPacketConn) WriteMsgUDP(b []byte, oob []byte, addr *net.UDPAddr) (n int, oobn int, err error) {
+func (conn *fakeNetPacketConn) WriteMsgUDP(b []byte, oob []byte, addr *net.UDPAddr) (n int, oobn int, err error) {
 	c, ok := conn.PacketConn.(interface {
 		WriteMsgUDP(b []byte, oob []byte, addr *net.UDPAddr) (n int, oobn int, err error)
 	})
@@ -78,34 +99,39 @@ func (conn *FakeNetPacketConn) WriteMsgUDP(b []byte, oob []byte, addr *net.UDPAd
 	return c.WriteMsgUDP(b, oob, addr)
 }
 
-func (conn *FakeNetPacketConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
+func (conn *fakeNetPacketConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
 	n, a, err := conn.PacketConn.ReadFrom(p)
 	return n, net.UDPAddrFromAddrPort(a), err
 }
-func (conn *FakeNetPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
+func (conn *fakeNetPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 	return conn.PacketConn.WriteTo(p, addr.String())
 }
-func (conn *FakeNetPacketConn) LocalAddr() net.Addr {
+func (conn *fakeNetPacketConn) LocalAddr() net.Addr {
 	return conn.LAddr
 }
-func (conn *FakeNetPacketConn) RemoteAddr() net.Addr {
+func (conn *fakeNetPacketConn) RemoteAddr() net.Addr {
 	return conn.RAddr
 }
-func (conn *FakeNetPacketConn) SetWriteBuffer(size int) error {
+func (conn *fakeNetPacketConn) SetWriteBuffer(size int) error {
 	c, ok := conn.PacketConn.(interface{ SetWriteBuffer(int) error })
 	if !ok {
 		return fmt.Errorf("connection doesn't allow setting of send buffer size. Not a *net.UDPConn? : %T", conn.PacketConn)
 	}
 	return c.SetWriteBuffer(size)
 }
-func (conn *FakeNetPacketConn) SetReadBuffer(size int) error {
+func (conn *fakeNetPacketConn) SetReadBuffer(size int) error {
 	c, ok := conn.PacketConn.(interface{ SetReadBuffer(int) error })
 	if !ok {
 		return fmt.Errorf("connection doesn't allow setting of send buffer size. Not a *net.UDPConn? : %T", conn.PacketConn)
 	}
 	return c.SetReadBuffer(size)
 }
-func (conn *FakeNetPacketConn) SyscallConn() (syscall.RawConn, error) {
+
+type fakeNetPacketConn2 struct {
+	*fakeNetPacketConn
+}
+
+func (conn *fakeNetPacketConn2) SyscallConn() (syscall.RawConn, error) {
 	c, ok := conn.PacketConn.(interface {
 		SyscallConn() (syscall.RawConn, error)
 	})
@@ -115,4 +141,4 @@ func (conn *FakeNetPacketConn) SyscallConn() (syscall.RawConn, error) {
 	return c.SyscallConn()
 }
 
-var _ quic.OOBCapablePacketConn = &FakeNetPacketConn{}
+var _ quic.OOBCapablePacketConn = &fakeNetPacketConn2{}

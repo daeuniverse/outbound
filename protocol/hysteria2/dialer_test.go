@@ -78,11 +78,11 @@ func TestUDP(t *testing.T) {
 			if err != nil {
 				return nil, err
 			}
-			return &netproxy.FakeNetPacketConn{
-				PacketConn: c.(netproxy.PacketConn),
-				LAddr:      nil,
-				RAddr:      nil,
-			}, nil
+			return netproxy.NewFakeNetPacketConn(
+				c.(netproxy.PacketConn),
+				nil,
+				nil,
+			), nil
 		},
 	}
 	ips, err := resolver.LookupNetIP(context.TODO(), "ip", "www.baidu.com")
