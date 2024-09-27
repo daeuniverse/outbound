@@ -59,6 +59,7 @@ func (s *Hysteria2) Dialer(option *dialer.ExtraOption, nextDialer netproxy.Diale
 	}
 	if header.SNI == "" {
 		header.SNI = s.Server
+		header.TlsConfig.ServerName = s.Server
 	}
 	if s.MaxTx > 0 && s.MaxRx > 0 {
 		header.Feature1 = &client.BandwidthConfig{
