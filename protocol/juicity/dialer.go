@@ -94,11 +94,10 @@ func (d *Dialer) dialFuncFactory(udpNetwork string, rAddr net.Addr) common.DialF
 		if err != nil {
 			return nil, nil, err
 		}
-		pc := &netproxy.FakeNetPacketConn{
-			PacketConn: conn.(netproxy.PacketConn),
-			LAddr:      net.UDPAddrFromAddrPort(common.GetUniqueFakeAddrPort()),
-			RAddr:      rAddr,
-		}
+		pc := netproxy.NewFakeNetPacketConn(
+			conn.(netproxy.PacketConn),
+			net.UDPAddrFromAddrPort(common.GetUniqueFakeAddrPort()),
+			rAddr)
 		transport = &quic.Transport{Conn: pc}
 		return transport, rAddr, nil
 	}
