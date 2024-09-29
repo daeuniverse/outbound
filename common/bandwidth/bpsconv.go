@@ -22,10 +22,11 @@ const (
 	Terabyte = Gigabyte * 1000
 )
 
-// StringToBps converts a string to a bandwidth value in bytes per second.
+// Parse converts a string to a bandwidth value in bytes per second.
 // E.g. "100 Mbps", "512 kbps", "1g" are all valid.
-func StringToBps(s string) (uint64, error) {
+func Parse(s string) (uint64, error) {
 	s = strings.ToLower(strings.TrimSpace(s))
+
 	spl := 0
 	for i, c := range s {
 		if c < '0' || c > '9' {
@@ -34,19 +35,15 @@ func StringToBps(s string) (uint64, error) {
 		}
 	}
 	if spl == 0 {
-		v, err := strconv.ParseUint(s, 10, 64)
-		if err != nil {
-			return 0, err
-		}
-		return v, nil
+		return strconv.ParseUint(s, 10, 64)
 	}
+
 	v, err := strconv.ParseUint(s[:spl], 10, 64)
 	if err != nil {
 		return 0, err
 	}
-	unit := strings.TrimSpace(s[spl:])
 
-	switch strings.ToLower(unit) {
+	switch strings.TrimSpace(s[spl:]) {
 	case "b", "bps":
 		return v * Byte / 8, nil
 	case "k", "kb", "kbps":

@@ -68,11 +68,11 @@ func (s *Hysteria2) Dialer(option *dialer.ExtraOption, nextDialer netproxy.Diale
 			MaxTx: s.MaxTx,
 		}
 	} else if option.BandwidthMaxRx != "" && option.BandwidthMaxTx != "" {
-		maxRx, err := bandwidth.StringToBps(option.BandwidthMaxRx)
+		maxRx, err := bandwidth.Parse(option.BandwidthMaxRx)
 		if err != nil {
 			return nil, nil, fmt.Errorf("invalid bandwidth value for MaxRx: %w", err)
 		}
-		maxTx, err := bandwidth.StringToBps(option.BandwidthMaxTx)
+		maxTx, err := bandwidth.Parse(option.BandwidthMaxTx)
 		if err != nil {
 			return nil, nil, fmt.Errorf("invalid bandwidth value for MaxTx: %w", err)
 		}
