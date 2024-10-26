@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/daeuniverse/outbound/common/bandwidth"
 	"github.com/daeuniverse/outbound/dialer"
 	"github.com/daeuniverse/outbound/netproxy"
 	"github.com/daeuniverse/outbound/protocol"
@@ -66,10 +67,20 @@ func (s *Hysteria2) Dialer(option *dialer.ExtraOption, nextDialer netproxy.Diale
 			MaxRx: s.MaxRx,
 			MaxTx: s.MaxTx,
 		}
-	} else if option.BandwidthMaxRx > 0 && option.BandwidthMaxTx > 0 {
-		header.Feature1 = &client.BandwidthConfig{
-			MaxRx: option.BandwidthMaxRx,
-			MaxTx: option.BandwidthMaxTx,
+	} else if option.BandwidthMaxRx != "" && option.BandwidthMaxTx != "" {
+		maxRx, err := bandwidth.Parse(option.BandwidthMaxRx)
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid bandwidth value for MaxRx: %w", err)
+		}
+		maxTx, err := bandwidth.Parse(option.BandwidthMaxTx)
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid bandwidth value for MaxTx: %w", err)
+		}
+		if maxRx > 0 && maxTx > 0 {
+			header.Feature1 = &client.BandwidthConfig{
+				MaxRx: maxRx,
+				MaxTx: maxTx,
+			}
 		}
 	}
 	if s.PinSHA256 != "" {

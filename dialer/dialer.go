@@ -11,8 +11,8 @@ type ExtraOption struct {
 	AllowInsecure     bool
 	TlsImplementation string
 	UtlsImitate       string
-	BandwidthMaxTx    uint64
-	BandwidthMaxRx    uint64
+	BandwidthMaxTx    string
+	BandwidthMaxRx    string
 }
 
 type Property struct {
