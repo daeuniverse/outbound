@@ -52,8 +52,8 @@ func NewDialer(nextDialer netproxy.Dialer, header protocol.Header) (netproxy.Dia
 		metadata:     metadata,
 		flow:         flow.(string),
 		// xudp:         header.Flags&protocol.Flags_VMess_UsePacketAddr == 0,
-		// xudp: true,
-		key: id,
+		xudp: true && flow == XRV,
+		key:  id,
 	}, nil
 }
 
@@ -100,6 +100,9 @@ func (d *Dialer) DialContext(ctx context.Context, network string, addr string) (
 			return nil, err
 		}
 		if d.flow == XRV {
+			if d.xudp {
+				return vision.NewPacketConn(conn, d.key, magicNetwork.Network, addr)
+			}
 			return vision.NewConn(conn, d.key)
 		}
 		return conn, nil
