@@ -1,7 +1,6 @@
 package vision
 
 import (
-	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -22,18 +21,26 @@ type PacketConn struct {
 }
 
 func (c *PacketConn) Read(b []byte) (n int, err error) {
-	if c.network == "tcp" {
+	switch c.network {
+	case "tcp":
 		return c.Conn.Read(b)
+	case "udp":
+		n, _, err = c.ReadFrom(b)
+		return n, err
+	default:
+		return 0, fmt.Errorf("unsupported network: %s", c.network)
 	}
-	n, _, err = c.ReadFrom(b)
-	return n, err
 }
 
 func (c *PacketConn) Write(b []byte) (n int, err error) {
-	if c.network == "tcp" {
+	switch c.network {
+	case "tcp":
 		return c.Conn.Write(b)
+	case "udp":
+		return c.WriteTo(b, c.addr)
+	default:
+		return 0, fmt.Errorf("unsupported network: %s", c.network)
 	}
-	return c.WriteTo(b, c.addr)
 }
 
 // +-------------------+-------------------+
@@ -44,27 +51,27 @@ func (c *PacketConn) Write(b []byte) (n int, err error) {
 // |   Length Data     |     Payload      |
 // +-------------------+-------------------+
 func (c *PacketConn) ReadFrom(p []byte) (n int, addr netip.AddrPort, err error) {
-	data := make([]byte, 1024)
-	n, err = c.Conn.Read(data)
-	if err != nil {
+	// Read frame length (2 bytes)
+	var frameLengthBytes [2]byte
+	if _, err = io.ReadFull(c.Conn, frameLengthBytes[:]); err != nil {
 		return 0, netip.AddrPort{}, err
 	}
-	data = data[:n]
-	var frameLength uint16
+	frameLength := binary.BigEndian.Uint16(frameLengthBytes[:])
+
+	// Read frame header (4 bytes)
 	var frameHeaderBytes [4]byte
-	buf := bytes.NewBuffer(data)
-	frameLength = binary.BigEndian.Uint16(buf.Next(2))
-	frameHeaderBytes = [4]byte(buf.Next(4))
+	if _, err = io.ReadFull(c.Conn, frameHeaderBytes[:]); err != nil {
+		return 0, netip.AddrPort{}, err
+	}
+
 	switch frameHeaderBytes[2] {
 	case 0x01:
-		// New
 		return 0, netip.AddrPort{}, fmt.Errorf("unexpected frame new")
 	case 0x02:
 		// Keep
-		if frameLength != 4 {
+		if frameLength > 4 {
 			addrData := make([]byte, frameLength-4)
-			_, err = buf.Read(addrData)
-			if err != nil {
+			if _, err = io.ReadFull(c.Conn, addrData); err != nil {
 				return 0, netip.AddrPort{}, err
 			}
 			addr, err = ReadPacketAddr(addrData)
@@ -73,25 +80,30 @@ func (c *PacketConn) ReadFrom(p []byte) (n int, addr netip.AddrPort, err error) 
 			}
 		}
 	case 0x03:
-		// End
 		return 0, netip.AddrPort{}, io.EOF
 	case 0x04:
 		// KeepAlive
 	default:
 		return 0, netip.AddrPort{}, fmt.Errorf("unsupported frame header: %x", frameHeaderBytes[2])
 	}
+
 	if frameHeaderBytes[3]&1 != 1 {
 		return c.ReadFrom(p)
-	} else {
-		length := binary.BigEndian.Uint16(buf.Next(2))
-		payload := make([]byte, length)
-		n, err = buf.Read(payload)
-		if err != nil {
-			return 0, netip.AddrPort{}, err
-		}
-		copy(p, payload)
-		return n, addr, nil
 	}
+
+	// Read length and payload
+	var lengthBytes [2]byte
+	if _, err = io.ReadFull(c.Conn, lengthBytes[:]); err != nil {
+		return 0, netip.AddrPort{}, err
+	}
+	length := binary.BigEndian.Uint16(lengthBytes[:])
+
+	if length > uint16(len(p)) {
+		return 0, netip.AddrPort{}, fmt.Errorf("buffer too small")
+	}
+
+	n, err = io.ReadFull(c.Conn, p[:length])
+	return n, addr, err
 }
 
 // +------------------------+------------------------+
