@@ -16,6 +16,11 @@ import (
 
 var ErrNotTLS13 = errors.New("XTLS Vision based on TLS 1.3 outer connection")
 
+func NewPacketConn(conn netproxy.Conn, userUUID []byte, network string, addr string) (*PacketConn, error) {
+	c, err := NewConn(conn, userUUID)
+	return &PacketConn{c, network, addr}, err
+}
+
 func NewConn(conn netproxy.Conn, userUUID []byte) (*Conn, error) {
 	c := &Conn{
 		overlayConn:                conn,

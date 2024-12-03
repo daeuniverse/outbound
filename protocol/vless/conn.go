@@ -121,7 +121,7 @@ func (c *Conn) Write(b []byte) (n int, err error) {
 	// logrus.Println("VLESS CONN WRITE", hex.EncodeToString(b))
 	c.writeMutex.Lock()
 	defer c.writeMutex.Unlock()
-	if c.metadata.Network == "udp" {
+	if c.metadata.Network == "udp" && c.metadata.Flow != XRV {
 		// logrus.Println("!!!", "UDP, write")
 		bLen := pool.Get(2)
 		defer pool.Put(bLen)
@@ -152,7 +152,7 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 	c.readMutex.Lock()
 	defer c.readMutex.Unlock()
 
-	if c.metadata.Network == "udp" {
+	if c.metadata.Network == "udp" && c.metadata.Flow != XRV {
 		// logrus.Println("!!!", "UDP, read")
 		// defer func() {
 		// 	logrus.Println("READ", n, err)
