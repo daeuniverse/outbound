@@ -1,6 +1,7 @@
 package shadowsocks
 
 import (
+	"context"
 	"crypto/sha1"
 	"fmt"
 	"io"
@@ -41,7 +42,7 @@ func GetSaltGenerator(masterKey []byte, saltLen int) (sg SaltGenerator, err erro
 		muGenerators.Unlock()
 		defer func() {
 			dummy.Success = err == nil
-			close(dummy.Closed)
+			dummy.Closed = true
 		}()
 		switch DefaultSaltGeneratorType {
 		case IodizedSaltGeneratorType:
@@ -61,7 +62,9 @@ func GetSaltGenerator(masterKey []byte, saltLen int) (sg SaltGenerator, err erro
 	} else {
 		muGenerators.Unlock()
 		if g, isBuilding := sg.(*DummySaltGenerator); isBuilding {
-			<-g.Closed
+			for g.Closed {
+				// spinning
+			}
 			if g.Success {
 				muGenerators.Lock()
 				sg = saltGenerators[saltLen]
@@ -90,7 +93,8 @@ type IodizedSaltGenerator struct {
 	kdfInfo     []byte
 	salt        []byte
 	cnt         [32]byte
-	closed      chan struct{}
+	ctx         context.Context
+	cancel      func()
 }
 
 func NewIodizedSaltGenerator(salt []byte, saltSize, bucketSize int, fromPool bool) (*IodizedSaltGenerator, error) {
@@ -112,6 +116,7 @@ func NewIodizedSaltGenerator(salt []byte, saltSize, bucketSize int, fromPool boo
 	h.Write(rnd[:])
 	h.Write(salt)
 	kdfInfo := h.Sum(b)
+	ctx, cancel := context.WithCancel(context.Background())
 	g := IodizedSaltGenerator{
 		tokenBucket: make(chan []byte, bucketSize),
 		saltSize:    saltSize,
@@ -121,7 +126,8 @@ func NewIodizedSaltGenerator(salt []byte, saltSize, bucketSize int, fromPool boo
 		tokenLen:    5,
 		kdfInfo:     kdfInfo[:],
 		salt:        salt,
-		closed:      make(chan struct{}),
+		ctx:         ctx,
+		cancel:      cancel,
 	}
 	go g.start()
 	return &g, nil
@@ -166,7 +172,7 @@ func (g *IodizedSaltGenerator) start() {
 			log.Fatal("IodizedSaltGenerator.start:", err)
 		}
 		select {
-		case <-g.closed:
+		case <-g.ctx.Done():
 			break
 		case g.tokenBucket <- salt:
 		}
@@ -178,7 +184,7 @@ func (g *IodizedSaltGenerator) Get() []byte {
 }
 
 func (g *IodizedSaltGenerator) Close() error {
-	close(g.closed)
+	g.cancel()
 	return nil
 }
 
@@ -210,12 +216,12 @@ func (g *RandomSaltGenerator) Close() error {
 }
 
 type DummySaltGenerator struct {
-	Closed  chan struct{}
+	Closed  bool
 	Success bool
 }
 
 func NewDummySaltGenerator() *DummySaltGenerator {
-	return &DummySaltGenerator{Closed: make(chan struct{})}
+	return &DummySaltGenerator{}
 }
 
 func (g *DummySaltGenerator) Get() []byte {
@@ -223,6 +229,6 @@ func (g *DummySaltGenerator) Get() []byte {
 }
 
 func (g *DummySaltGenerator) Close() error {
-	close(g.Closed)
+	g.Closed = true
 	return nil
 }

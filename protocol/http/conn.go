@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"container/list"
+	"context"
 	"crypto/tls"
 	"encoding/base64"
 	"errors"
@@ -28,10 +29,11 @@ type Conn struct {
 	magicNetwork string
 	tgt          string
 
-	chShakeFinished    chan struct{}
-	muShake            sync.Mutex
-	muFinishShakeFuncs sync.Mutex
-	finishShakeFuncs   []func(conn netproxy.Conn)
+	ctxShakeFinished    context.Context
+	cancelShakeFinished func()
+	muShake             sync.Mutex
+	muFinishShakeFuncs  sync.Mutex
+	finishShakeFuncs    []func(conn netproxy.Conn)
 
 	isH2 bool
 }
@@ -40,7 +42,7 @@ func (c *Conn) SetDeadline(t time.Time) error {
 	c.muFinishShakeFuncs.Lock()
 	defer c.muFinishShakeFuncs.Unlock()
 	select {
-	case <-c.chShakeFinished:
+	case <-c.ctxShakeFinished.Done():
 		if c.conn == nil {
 			return io.EOF
 		}
@@ -63,7 +65,7 @@ func (c *Conn) SetReadDeadline(t time.Time) error {
 	c.muFinishShakeFuncs.Lock()
 	defer c.muFinishShakeFuncs.Unlock()
 	select {
-	case <-c.chShakeFinished:
+	case <-c.ctxShakeFinished.Done():
 		if c.conn == nil {
 			return io.EOF
 		}
@@ -86,7 +88,7 @@ func (c *Conn) SetWriteDeadline(t time.Time) error {
 	c.muFinishShakeFuncs.Lock()
 	defer c.muFinishShakeFuncs.Unlock()
 	select {
-	case <-c.chShakeFinished:
+	case <-c.ctxShakeFinished.Done():
 		if c.conn == nil {
 			return io.EOF
 		}
@@ -106,12 +108,14 @@ func (c *Conn) SetWriteDeadline(t time.Time) error {
 }
 
 func NewConn(nextDialer netproxy.Dialer, proxy *HttpProxy, addr string, network string) *Conn {
+	ctxShakeFinished, cancelShakeFinished := context.WithCancel(context.Background())
 	return &Conn{
-		nextDialer:      nextDialer,
-		proxy:           proxy,
-		tgt:             addr,
-		magicNetwork:    network,
-		chShakeFinished: make(chan struct{}),
+		nextDialer:          nextDialer,
+		proxy:               proxy,
+		tgt:                 addr,
+		magicNetwork:        network,
+		ctxShakeFinished:    ctxShakeFinished,
+		cancelShakeFinished: cancelShakeFinished,
 	}
 }
 
@@ -129,14 +133,14 @@ func (c *Conn) Write(b []byte) (n int, err error) {
 		}
 	}()
 	select {
-	case <-c.chShakeFinished:
+	case <-c.ctxShakeFinished.Done():
 		if c.conn == nil {
 			return 0, io.EOF
 		}
 		return c.conn.Write(b)
 	default:
 		// Handshake
-		defer close(c.chShakeFinished)
+		defer c.cancelShakeFinished()
 		_, firstLine, _ := bufio.ScanLines(b, true)
 		isHttpReq := regexp.MustCompile(`^\S+ \S+ HTTP/[\d.]+$`).Match(firstLine)
 
@@ -289,7 +293,7 @@ func (c *Conn) Write(b []byte) (n int, err error) {
 }
 
 func (c *Conn) Read(b []byte) (n int, err error) {
-	<-c.chShakeFinished
+	<-c.ctxShakeFinished.Done()
 	if c.conn == nil {
 		return 0, io.EOF
 	}

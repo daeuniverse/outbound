@@ -54,18 +54,28 @@ type ClientConn struct {
 	deadlineMu    sync.Mutex
 	readDeadline  *time.Timer
 	writeDeadline *time.Timer
-	readClosed    chan struct{}
-	writeClosed   chan struct{}
-	closed        chan struct{}
+
+	ctxRead     context.Context
+	cancelRead  func()
+	ctxWrite    context.Context
+	cancelWrite func()
+	ctx         context.Context
+	cancel      func()
 }
 
 func NewClientConn(tun proto.GunService_TunClient, closer context.CancelFunc) *ClientConn {
+	ctx, cancel := context.WithCancel(context.Background())
+	ctxRead, cancelRead := context.WithCancel(context.Background())
+	ctxWrite, cancelWrite := context.WithCancel(context.Background())
 	return &ClientConn{
 		tun:         tun,
 		closer:      closer,
-		readClosed:  make(chan struct{}),
-		writeClosed: make(chan struct{}),
-		closed:      make(chan struct{}),
+		ctx:         ctx,
+		cancel:      cancel,
+		ctxRead:     ctxRead,
+		cancelRead:  cancelRead,
+		ctxWrite:    ctxWrite,
+		cancelWrite: cancelWrite,
 	}
 }
 
@@ -76,9 +86,9 @@ type RecvResp struct {
 
 func (c *ClientConn) Read(p []byte) (n int, err error) {
 	select {
-	case <-c.readClosed:
+	case <-c.ctxRead.Done():
 		return 0, os.ErrDeadlineExceeded
-	case <-c.closed:
+	case <-c.ctx.Done():
 		return 0, io.EOF
 	default:
 	}
@@ -108,9 +118,9 @@ func (c *ClientConn) Read(p []byte) (n int, err error) {
 		}
 	}(readDone)
 	select {
-	case <-c.readClosed:
+	case <-c.ctxRead.Done():
 		return 0, os.ErrDeadlineExceeded
-	case <-c.closed:
+	case <-c.ctx.Done():
 		return 0, io.EOF
 	case recvResp := <-readDone:
 		err = recvResp.err
@@ -130,9 +140,9 @@ func (c *ClientConn) Read(p []byte) (n int, err error) {
 
 func (c *ClientConn) Write(p []byte) (n int, err error) {
 	select {
-	case <-c.writeClosed:
+	case <-c.ctxWrite.Done():
 		return 0, os.ErrDeadlineExceeded
-	case <-c.closed:
+	case <-c.ctx.Done():
 		return 0, io.EOF
 	default:
 	}
@@ -150,9 +160,9 @@ func (c *ClientConn) Write(p []byte) (n int, err error) {
 		sendDone <- e
 	}(sendDone)
 	select {
-	case <-c.writeClosed:
+	case <-c.ctxWrite.Done():
 		return 0, os.ErrDeadlineExceeded
-	case <-c.closed:
+	case <-c.ctx.Done():
 		return 0, io.EOF
 	case err = <-sendDone:
 		if code := status.Code(err); code == codes.Unavailable || status.Code(err) == codes.OutOfRange {
@@ -164,9 +174,9 @@ func (c *ClientConn) Write(p []byte) (n int, err error) {
 
 func (c *ClientConn) Close() error {
 	select {
-	case <-c.closed:
+	case <-c.ctx.Done():
 	default:
-		close(c.closed)
+		c.cancel()
 	}
 	c.closer()
 	return nil
@@ -181,16 +191,17 @@ func (c *ClientConn) SetDeadline(t time.Time) error {
 	if now := time.Now(); t.After(now) {
 		// refresh the deadline if the deadline has been exceeded
 		select {
-		case <-c.readClosed:
-			c.readClosed = make(chan struct{})
+		case <-c.ctxRead.Done():
+			c.ctxRead, c.cancelRead = context.WithCancel(context.Background())
+
 		default:
 		}
 		select {
-		case <-c.writeClosed:
-			c.writeClosed = make(chan struct{})
+		case <-c.ctxWrite.Done():
+			c.ctxWrite, c.cancelWrite = context.WithCancel(context.Background())
 		default:
 		}
-		// reset the deadline timer to make the c.readClosed and c.writeClosed with the new pointer (if it is)
+		// reset the deadline timer
 		if c.readDeadline != nil {
 			c.readDeadline.Stop()
 		}
@@ -198,9 +209,9 @@ func (c *ClientConn) SetDeadline(t time.Time) error {
 			c.deadlineMu.Lock()
 			defer c.deadlineMu.Unlock()
 			select {
-			case <-c.readClosed:
+			case <-c.ctxRead.Done():
 			default:
-				close(c.readClosed)
+				c.cancelRead()
 			}
 		})
 		if c.writeDeadline != nil {
@@ -210,21 +221,21 @@ func (c *ClientConn) SetDeadline(t time.Time) error {
 			c.deadlineMu.Lock()
 			defer c.deadlineMu.Unlock()
 			select {
-			case <-c.writeClosed:
+			case <-c.ctxWrite.Done():
 			default:
-				close(c.writeClosed)
+				c.cancelWrite()
 			}
 		})
 	} else {
 		select {
-		case <-c.readClosed:
+		case <-c.ctxRead.Done():
 		default:
-			close(c.readClosed)
+			c.cancelRead()
 		}
 		select {
-		case <-c.writeClosed:
+		case <-c.ctxWrite.Done():
 		default:
-			close(c.writeClosed)
+			c.cancelWrite()
 		}
 	}
 	return nil
@@ -236,11 +247,11 @@ func (c *ClientConn) SetReadDeadline(t time.Time) error {
 	if now := time.Now(); t.After(now) {
 		// refresh the deadline if the deadline has been exceeded
 		select {
-		case <-c.readClosed:
-			c.readClosed = make(chan struct{})
+		case <-c.ctxRead.Done():
+			c.ctxRead, c.cancelRead = context.WithCancel(context.Background())
 		default:
 		}
-		// reset the deadline timer to make the c.readClosed and c.writeClosed with the new pointer (if it is)
+		// reset the deadline timer
 		if c.readDeadline != nil {
 			c.readDeadline.Stop()
 		}
@@ -248,16 +259,16 @@ func (c *ClientConn) SetReadDeadline(t time.Time) error {
 			c.deadlineMu.Lock()
 			defer c.deadlineMu.Unlock()
 			select {
-			case <-c.readClosed:
+			case <-c.ctxRead.Done():
 			default:
-				close(c.readClosed)
+				c.cancelRead()
 			}
 		})
 	} else {
 		select {
-		case <-c.readClosed:
+		case <-c.ctxRead.Done():
 		default:
-			close(c.readClosed)
+			c.cancelRead()
 		}
 	}
 	return nil
@@ -269,8 +280,8 @@ func (c *ClientConn) SetWriteDeadline(t time.Time) error {
 	if now := time.Now(); t.After(now) {
 		// refresh the deadline if the deadline has been exceeded
 		select {
-		case <-c.writeClosed:
-			c.writeClosed = make(chan struct{})
+		case <-c.ctxWrite.Done():
+			c.ctxWrite, c.cancelWrite = context.WithCancel(context.Background())
 		default:
 		}
 		if c.writeDeadline != nil {
@@ -280,16 +291,16 @@ func (c *ClientConn) SetWriteDeadline(t time.Time) error {
 			c.deadlineMu.Lock()
 			defer c.deadlineMu.Unlock()
 			select {
-			case <-c.writeClosed:
+			case <-c.ctxWrite.Done():
 			default:
-				close(c.writeClosed)
+				c.cancelWrite()
 			}
 		})
 	} else {
 		select {
-		case <-c.writeClosed:
+		case <-c.ctxWrite.Done():
 		default:
-			close(c.writeClosed)
+			c.cancelWrite()
 		}
 	}
 	return nil
