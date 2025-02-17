@@ -2,6 +2,7 @@ package tuic
 
 import (
 	"container/list"
+	"context"
 	"errors"
 	"net"
 	"net/netip"
@@ -17,16 +18,20 @@ import (
 )
 
 type Packets struct {
-	mu       sync.Mutex
-	list     *list.List
-	nonEmpty chan struct{}
-	closed   bool
+	mu               sync.Mutex
+	list             *list.List
+	isEmptyState     context.Context
+	cancelEmptyState func()
+	closed           bool
 }
 
 func NewPackets() *Packets {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &Packets{
-		list:     list.New().Init(),
-		nonEmpty: make(chan struct{}),
+		mu:               sync.Mutex{},
+		list:             list.New().Init(),
+		isEmptyState:     ctx,
+		cancelEmptyState: cancel,
 	}
 }
 
@@ -35,14 +40,14 @@ func (p *Packets) PushBack(packet *Packet) {
 	defer p.mu.Unlock()
 	p.list.PushBack(packet)
 	select {
-	case <-p.nonEmpty:
+	case <-p.isEmptyState.Done():
 	default:
-		close(p.nonEmpty)
+		p.cancelEmptyState()
 	}
 }
 
 func (p *Packets) PopFrontBlock() (packet *Packet, closed bool) {
-	<-p.nonEmpty
+	<-p.isEmptyState.Done()
 	if p.closed {
 		return nil, true
 	}
@@ -56,7 +61,7 @@ func (p *Packets) PopFrontBlock() (packet *Packet, closed bool) {
 }
 
 func (p *Packets) setEmpty() {
-	p.nonEmpty = make(chan struct{})
+	p.isEmptyState, p.cancelEmptyState = context.WithCancel(context.Background())
 }
 
 func (p *Packets) Close() error {
@@ -67,9 +72,9 @@ func (p *Packets) Close() error {
 	}
 	p.closed = true
 	select {
-	case <-p.nonEmpty:
+	case <-p.isEmptyState.Done():
 	default:
-		close(p.nonEmpty)
+		p.cancelEmptyState()
 	}
 	return nil
 }
