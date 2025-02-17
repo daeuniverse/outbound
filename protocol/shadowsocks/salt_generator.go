@@ -62,7 +62,7 @@ func GetSaltGenerator(masterKey []byte, saltLen int) (sg SaltGenerator, err erro
 	} else {
 		muGenerators.Unlock()
 		if g, isBuilding := sg.(*DummySaltGenerator); isBuilding {
-			for g.Closed {
+			for !g.Closed {
 				// spinning
 			}
 			if g.Success {
