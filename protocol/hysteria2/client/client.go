@@ -83,7 +83,7 @@ func (c *clientImpl) connect() (*HandshakeInfo, error) {
 	var conn quic.EarlyConnection
 	rt := &http3.RoundTripper{
 		TLSClientConfig: tlsConfig,
-		QuicConfig:      quicConfig,
+		QUICConfig:      quicConfig,
 		Dial: func(_ context.Context, _ string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlyConnection, error) {
 			ctx, cancel := netproxy.NewDialTimeoutContext()
 			defer cancel()
