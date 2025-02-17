@@ -79,9 +79,9 @@ func (c *clientImpl) connect() (*HandshakeInfo, error) {
 		DisablePathMTUDiscovery:        c.config.QUICConfig.DisablePathMTUDiscovery,
 		EnableDatagrams:                true,
 	}
-	// Prepare RoundTripper
+	// Prepare Transport
 	var conn quic.EarlyConnection
-	rt := &http3.RoundTripper{
+	rt := &http3.Transport{
 		TLSClientConfig: tlsConfig,
 		QUICConfig:      quicConfig,
 		Dial: func(_ context.Context, _ string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlyConnection, error) {
@@ -195,7 +195,7 @@ func (c *clientImpl) TCP(addr string) (netproxy.Conn, error) {
 	}
 	if !ok {
 		_ = stream.Close()
-		return nil, coreErrs.DialError{Message: msg}
+		return nil, coreErrs.DialError{Message: "from remote: " + msg}
 	}
 	return &tcpConn{
 		Orig:             stream,
