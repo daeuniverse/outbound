@@ -84,9 +84,7 @@ func (c *clientImpl) connect() (*HandshakeInfo, error) {
 	rt := &http3.Transport{
 		TLSClientConfig: tlsConfig,
 		QUICConfig:      quicConfig,
-		Dial: func(_ context.Context, _ string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlyConnection, error) {
-			ctx, cancel := netproxy.NewDialTimeoutContext()
-			defer cancel()
+		Dial: func(ctx context.Context, _ string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlyConnection, error) {
 			qc, err := quic.DialEarly(ctx, pktConn, c.config.ServerAddr, tlsCfg, cfg)
 			if err != nil {
 				return nil, err
@@ -96,15 +94,18 @@ func (c *clientImpl) connect() (*HandshakeInfo, error) {
 		},
 	}
 	// Send auth HTTP request
-	req := &http.Request{
-		Method: http.MethodPost,
-		URL: &url.URL{
-			Scheme: "https",
-			Host:   protocol.URLHost,
-			Path:   protocol.URLPath,
-		},
-		Header: make(http.Header),
+	ctx, cancel := netproxy.NewDialTimeoutContext()
+	defer cancel()
+	u := &url.URL{
+		Scheme: "https",
+		Host:   protocol.URLHost,
+		Path:   protocol.URLPath,
 	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header = make(http.Header)
 	protocol.AuthRequestToHeader(req.Header, protocol.AuthRequest{
 		Auth: c.config.Auth,
 		Rx:   c.config.BandwidthConfig.MaxRx,
