@@ -55,7 +55,7 @@ func NewDirectDialerLaddr(lAddr netip.Addr, option Option) netproxy.Dialer {
 }
 
 func (d *directDialer) dialUdp(ctx context.Context, addr string, mark int) (c netproxy.PacketConn, err error) {
-	var remoteAddr string
+	var remoteIp string
 	if d.Option.WithCache {
 		defer func() {
 			host, port, _ := net.SplitHostPort(addr)
@@ -70,9 +70,9 @@ func (d *directDialer) dialUdp(ctx context.Context, addr string, mark int) (c ne
 			d.muCache.Lock()
 			if err != nil {
 				lastRemoteIp = d.cache.lastRemoteIp
-			} else if d.cache.lastAddr != host {
+			} else {
 				d.cache.lastAddr = host
-				d.cache.lastRemoteIp = remoteAddr
+				d.cache.lastRemoteIp = remoteIp
 			}
 			d.muCache.Unlock()
 			if err != nil && strings.Contains(err.Error(), "i/o timeout") && strings.Contains(err.Error(), "lookup") {
@@ -87,7 +87,7 @@ func (d *directDialer) dialUdp(ctx context.Context, addr string, mark int) (c ne
 			if err != nil {
 				return nil, err
 			}
-			remoteAddr = ""
+			remoteIp = ""
 			return &directPacketConn{UDPConn: conn, FullCone: true, dialTgt: addr}, nil
 		} else {
 			dialer := net.Dialer{
@@ -97,7 +97,7 @@ func (d *directDialer) dialUdp(ctx context.Context, addr string, mark int) (c ne
 			if err != nil {
 				return nil, err
 			}
-			remoteAddr = conn.RemoteAddr().String()
+			remoteIp = conn.RemoteAddr().(*net.UDPAddr).IP.String()
 			return &directPacketConn{UDPConn: conn.(*net.UDPConn), FullCone: false, dialTgt: addr}, nil
 		}
 
@@ -119,6 +119,7 @@ func (d *directDialer) dialUdp(ctx context.Context, addr string, mark int) (c ne
 				return nil, err
 			}
 			conn = _conn.(*net.UDPConn)
+			remoteIp = ""
 		} else {
 			dialer := net.Dialer{
 				Control: func(network, address string, c syscall.RawConn) error {
@@ -131,8 +132,8 @@ func (d *directDialer) dialUdp(ctx context.Context, addr string, mark int) (c ne
 				return nil, err
 			}
 			conn = c.(*net.UDPConn)
+			remoteIp = conn.RemoteAddr().(*net.UDPAddr).IP.String()
 		}
-		remoteAddr = conn.RemoteAddr().String()
 		return &directPacketConn{UDPConn: conn, FullCone: d.Option.FullCone, dialTgt: addr, resolver: &net.Resolver{
 			PreferGo: true,
 			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
@@ -162,9 +163,9 @@ func (d *directDialer) dialTcp(ctx context.Context, addr string, mark int, mptcp
 			d.muCache.Lock()
 			if err != nil {
 				lastRemoteIp = d.cache.lastRemoteIp
-			} else if d.cache.lastAddr != host {
+			} else {
 				d.cache.lastAddr = host
-				d.cache.lastRemoteIp = c.RemoteAddr().String()
+				d.cache.lastRemoteIp = c.RemoteAddr().(*net.TCPAddr).IP.String()
 			}
 			d.muCache.Unlock()
 			if err != nil && strings.Contains(err.Error(), "i/o timeout") && strings.Contains(err.Error(), "lookup") {
