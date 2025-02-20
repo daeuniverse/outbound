@@ -54,31 +54,39 @@ func NewDirectDialerLaddr(lAddr netip.Addr, option Option) netproxy.Dialer {
 	return d
 }
 
+func (d *directDialer) tryRetry(err error, addr string, remoteIp string, cb func(addr string)) {
+	host, port, _ := net.SplitHostPort(addr)
+	// Check if the host is domain
+	if _, e := netip.ParseAddr(host); e == nil {
+		// addr is IP
+		return
+	}
+
+	// addr is domain
+	d.muCache.Lock()
+	if err == nil {
+		d.cache.lastAddr = host
+		d.cache.lastRemoteIp = remoteIp
+		d.muCache.Unlock()
+	} else {
+		if d.cache.lastAddr == host && strings.Contains(err.Error(), "i/o timeout") && strings.Contains(err.Error(), "lookup") {
+			lastRemoteIp := d.cache.lastRemoteIp
+			d.muCache.Unlock()
+			// Retry with last remote ip
+			cb(net.JoinHostPort(lastRemoteIp, port))
+		} else {
+			d.muCache.Unlock()
+		}
+	}
+}
+
 func (d *directDialer) dialUdp(ctx context.Context, addr string, mark int) (c netproxy.PacketConn, err error) {
 	var remoteIp string
 	if d.Option.WithCache {
-		defer func() {
-			host, port, _ := net.SplitHostPort(addr)
-			// Check if the host is domain
-			if _, e := netip.ParseAddr(host); e == nil {
-				// addr is IP
-				return
-			}
-
-			// addr is domain
-			var lastRemoteIp string
-			d.muCache.Lock()
-			if err != nil {
-				lastRemoteIp = d.cache.lastRemoteIp
-			} else {
-				d.cache.lastAddr = host
-				d.cache.lastRemoteIp = remoteIp
-			}
-			d.muCache.Unlock()
-			if err != nil && strings.Contains(err.Error(), "i/o timeout") && strings.Contains(err.Error(), "lookup") {
-				// Retry with last remote ip
-				c, err = d.dialUdp(ctx, net.JoinHostPort(lastRemoteIp, port), mark)
-			}
+		defer func() { // don't remove func wrapper for d.tryRetry
+			d.tryRetry(err, addr, remoteIp, func(addr string) {
+				c, err = d.dialUdp(ctx, addr, mark)
+			})
 		}()
 	}
 	if mark == 0 {
@@ -150,28 +158,10 @@ func (d *directDialer) dialUdp(ctx context.Context, addr string, mark int) (c ne
 
 func (d *directDialer) dialTcp(ctx context.Context, addr string, mark int, mptcp bool) (c net.Conn, err error) {
 	if d.Option.WithCache {
-		defer func() {
-			host, port, _ := net.SplitHostPort(addr)
-			// Check if the host is domain
-			if _, e := netip.ParseAddr(host); e == nil {
-				// addr is IP
-				return
-			}
-
-			// addr is domain
-			var lastRemoteIp string
-			d.muCache.Lock()
-			if err != nil {
-				lastRemoteIp = d.cache.lastRemoteIp
-			} else {
-				d.cache.lastAddr = host
-				d.cache.lastRemoteIp = c.RemoteAddr().(*net.TCPAddr).IP.String()
-			}
-			d.muCache.Unlock()
-			if err != nil && strings.Contains(err.Error(), "i/o timeout") && strings.Contains(err.Error(), "lookup") {
-				// Retry with last remote ip
-				c, err = d.dialTcp(ctx, net.JoinHostPort(lastRemoteIp, port), mark, mptcp)
-			}
+		defer func() { // don't remove func wrapper for d.tryRetry
+			d.tryRetry(err, addr, c.RemoteAddr().(*net.TCPAddr).IP.String(), func(addr string) {
+				c, err = d.dialTcp(ctx, addr, mark, mptcp)
+			})
 		}()
 	}
 	var dialer *net.Dialer
