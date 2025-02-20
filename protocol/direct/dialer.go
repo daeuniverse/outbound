@@ -5,49 +5,89 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/daeuniverse/outbound/netproxy"
 )
 
-var SymmetricDirect = newDirectDialer(false)
-var FullconeDirect = newDirectDialer(true)
+var SymmetricDirect = NewDirectDialerLaddr(netip.Addr{}, Option{FullCone: false, WithCache: false})
+var FullconeDirect = NewDirectDialerLaddr(netip.Addr{}, Option{FullCone: true, WithCache: false})
 
-type directDialer struct {
-	tcpLocalAddr *net.TCPAddr
-	udpLocalAddr *net.UDPAddr
-	fullCone     bool
+type Option struct {
+	FullCone  bool
+	WithCache bool
 }
 
-func NewDirectDialerLaddr(fullCone bool, lAddr netip.Addr) netproxy.Dialer {
+type addrCache struct {
+	lastAddr     string
+	lastRemoteIp string
+}
+type directDialer struct {
+	tcpDialer      *net.Dialer
+	tcpDialerMptcp *net.Dialer
+	udpLocalAddr   *net.UDPAddr
+	Option         Option
+
+	muCache sync.Mutex
+	cache   addrCache
+}
+
+func NewDirectDialerLaddr(lAddr netip.Addr, option Option) netproxy.Dialer {
 	var tcpLocalAddr *net.TCPAddr
 	var udpLocalAddr *net.UDPAddr
 	if lAddr.IsValid() {
 		tcpLocalAddr = net.TCPAddrFromAddrPort(netip.AddrPortFrom(lAddr, 0))
 		udpLocalAddr = net.UDPAddrFromAddrPort(netip.AddrPortFrom(lAddr, 0))
 	}
-	return &directDialer{
-		tcpLocalAddr: tcpLocalAddr,
-		udpLocalAddr: udpLocalAddr,
-		fullCone:     fullCone,
+	tcpDialer := &net.Dialer{LocalAddr: tcpLocalAddr}
+	tcpDialerMptcp := &net.Dialer{LocalAddr: tcpLocalAddr}
+	tcpDialerMptcp.SetMultipathTCP(true)
+	d := &directDialer{
+		tcpDialer:      tcpDialer,
+		tcpDialerMptcp: tcpDialerMptcp,
+		udpLocalAddr:   udpLocalAddr,
+		Option:         option,
 	}
-}
 
-func newDirectDialer(fullCone bool) netproxy.Dialer {
-	return &directDialer{
-		tcpLocalAddr: nil,
-		udpLocalAddr: nil,
-		fullCone:     fullCone,
-	}
+	return d
 }
 
 func (d *directDialer) dialUdp(ctx context.Context, addr string, mark int) (c netproxy.PacketConn, err error) {
+	var remoteAddr string
+	if d.Option.WithCache {
+		defer func() {
+			host, port, _ := net.SplitHostPort(addr)
+			// Check if the host is domain
+			if _, e := netip.ParseAddr(host); e == nil {
+				// addr is IP
+				return
+			}
+
+			// addr is domain
+			var lastRemoteIp string
+			d.muCache.Lock()
+			if err != nil {
+				lastRemoteIp = d.cache.lastRemoteIp
+			} else if d.cache.lastAddr != host {
+				d.cache.lastAddr = host
+				d.cache.lastRemoteIp = remoteAddr
+			}
+			d.muCache.Unlock()
+			if err != nil && strings.Contains(err.Error(), "i/o timeout") && strings.Contains(err.Error(), "lookup") {
+				// Retry with last remote ip
+				c, err = d.dialUdp(ctx, net.JoinHostPort(lastRemoteIp, port), mark)
+			}
+		}()
+	}
 	if mark == 0 {
-		if d.fullCone {
+		if d.Option.FullCone {
 			conn, err := net.ListenUDP("udp", d.udpLocalAddr)
 			if err != nil {
 				return nil, err
 			}
+			remoteAddr = ""
 			return &directPacketConn{UDPConn: conn, FullCone: true, dialTgt: addr}, nil
 		} else {
 			dialer := net.Dialer{
@@ -57,12 +97,13 @@ func (d *directDialer) dialUdp(ctx context.Context, addr string, mark int) (c ne
 			if err != nil {
 				return nil, err
 			}
+			remoteAddr = conn.RemoteAddr().String()
 			return &directPacketConn{UDPConn: conn.(*net.UDPConn), FullCone: false, dialTgt: addr}, nil
 		}
 
 	} else {
 		var conn *net.UDPConn
-		if d.fullCone {
+		if d.Option.FullCone {
 			c := net.ListenConfig{
 				Control: func(network string, address string, c syscall.RawConn) error {
 					return netproxy.SoMarkControl(c, mark)
@@ -91,7 +132,8 @@ func (d *directDialer) dialUdp(ctx context.Context, addr string, mark int) (c ne
 			}
 			conn = c.(*net.UDPConn)
 		}
-		return &directPacketConn{UDPConn: conn, FullCone: d.fullCone, dialTgt: addr, resolver: &net.Resolver{
+		remoteAddr = conn.RemoteAddr().String()
+		return &directPacketConn{UDPConn: conn, FullCone: d.Option.FullCone, dialTgt: addr, resolver: &net.Resolver{
 			PreferGo: true,
 			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
 				d := net.Dialer{
@@ -105,11 +147,38 @@ func (d *directDialer) dialUdp(ctx context.Context, addr string, mark int) (c ne
 	}
 }
 
-func (d *directDialer) dialTcp(ctx context.Context, addr string, mark int, mptcp bool) (c netproxy.Conn, err error) {
-	dialer := &net.Dialer{
-		LocalAddr: d.tcpLocalAddr,
+func (d *directDialer) dialTcp(ctx context.Context, addr string, mark int, mptcp bool) (c net.Conn, err error) {
+	if d.Option.WithCache {
+		defer func() {
+			host, port, _ := net.SplitHostPort(addr)
+			// Check if the host is domain
+			if _, e := netip.ParseAddr(host); e == nil {
+				// addr is IP
+				return
+			}
+
+			// addr is domain
+			var lastRemoteIp string
+			d.muCache.Lock()
+			if err != nil {
+				lastRemoteIp = d.cache.lastRemoteIp
+			} else if d.cache.lastAddr != host {
+				d.cache.lastAddr = host
+				d.cache.lastRemoteIp = c.RemoteAddr().String()
+			}
+			d.muCache.Unlock()
+			if err != nil && strings.Contains(err.Error(), "i/o timeout") && strings.Contains(err.Error(), "lookup") {
+				// Retry with last remote ip
+				c, err = d.dialTcp(ctx, net.JoinHostPort(lastRemoteIp, port), mark, mptcp)
+			}
+		}()
 	}
-	dialer.SetMultipathTCP(mptcp)
+	var dialer *net.Dialer
+	if mptcp {
+		dialer = d.tcpDialerMptcp
+	} else {
+		dialer = d.tcpDialer
+	}
 	if mark == 0 {
 		return dialer.DialContext(ctx, "tcp", addr)
 	} else {
