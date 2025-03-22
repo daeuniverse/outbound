@@ -23,6 +23,7 @@ type Config struct {
 	TLSConfig       TLSConfig
 	QUICConfig      QUICConfig
 	BandwidthConfig BandwidthConfig
+	UDPHopInterval  time.Duration
 	FastOpen        bool
 
 	filled bool // whether the fields have been verified and filled

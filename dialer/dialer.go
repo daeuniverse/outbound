@@ -1,6 +1,9 @@
 package dialer
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 var (
 	UnexpectedFieldErr  = fmt.Errorf("unexpected field")
@@ -16,6 +19,7 @@ type ExtraOption struct {
 	UtlsImitate         string
 	BandwidthMaxTx      string
 	BandwidthMaxRx      string
+	UDPHopInterval    time.Duration
 }
 
 type Property struct {

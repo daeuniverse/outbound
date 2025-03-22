@@ -6,15 +6,15 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"fmt"
-	"net"
-	"net/url"
 	"strconv"
 	"strings"
 
 	"github.com/daeuniverse/outbound/common/bandwidth"
+	"github.com/daeuniverse/outbound/common/url"
 	"github.com/daeuniverse/outbound/dialer"
 	"github.com/daeuniverse/outbound/netproxy"
 	"github.com/daeuniverse/outbound/protocol"
+	"github.com/daeuniverse/outbound/protocol/hysteria2"
 	"github.com/daeuniverse/outbound/protocol/hysteria2/client"
 )
 
@@ -28,7 +28,6 @@ type Hysteria2 struct {
 	User      string
 	Password  string
 	Server    string
-	Port      int
 	Insecure  bool
 	Sni       string
 	PinSHA256 string
@@ -46,9 +45,8 @@ func NewHysteria2(option *dialer.ExtraOption, nextDialer netproxy.Dialer, link s
 
 func (s *Hysteria2) Dialer(option *dialer.ExtraOption, nextDialer netproxy.Dialer) (netproxy.Dialer, *dialer.Property, error) {
 	d := nextDialer
-	proxyAddress := net.JoinHostPort(s.Server, strconv.Itoa(s.Port))
 	header := protocol.Header{
-		ProxyAddress: proxyAddress,
+		ProxyAddress: s.Server,
 		TlsConfig: &tls.Config{
 			ServerName:         s.Sni,
 			InsecureSkipVerify: s.Insecure || option.AllowInsecure,
@@ -58,12 +56,12 @@ func (s *Hysteria2) Dialer(option *dialer.ExtraOption, nextDialer netproxy.Diale
 		Password: s.Password,
 		IsClient: true,
 	}
-	if header.SNI == "" {
-		header.SNI = s.Server
-		header.TlsConfig.ServerName = s.Server
+
+	feature1 := &hysteria2.Feature1{
+		UDPHopInterval: option.UDPHopInterval,
 	}
 	if s.MaxTx > 0 && s.MaxRx > 0 {
-		header.Feature1 = &client.BandwidthConfig{
+		feature1.BandwidthConfig = client.BandwidthConfig{
 			MaxRx: s.MaxRx,
 			MaxTx: s.MaxTx,
 		}
@@ -77,12 +75,14 @@ func (s *Hysteria2) Dialer(option *dialer.ExtraOption, nextDialer netproxy.Diale
 			return nil, nil, fmt.Errorf("invalid bandwidth value for MaxTx: %w", err)
 		}
 		if maxRx > 0 && maxTx > 0 {
-			header.Feature1 = &client.BandwidthConfig{
+			feature1.BandwidthConfig = client.BandwidthConfig{
 				MaxRx: maxRx,
 				MaxTx: maxTx,
 			}
 		}
 	}
+	header.Feature1 = feature1
+
 	if s.PinSHA256 != "" {
 		nHash := normalizeCertHash(s.PinSHA256)
 		header.TlsConfig.VerifyPeerCertificate = func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
@@ -105,7 +105,7 @@ func (s *Hysteria2) Dialer(option *dialer.ExtraOption, nextDialer netproxy.Diale
 	}
 	return d, &dialer.Property{
 		Name:     s.Name,
-		Address:  proxyAddress,
+		Address:  s.Server,
 		Protocol: "hysteria2",
 		Link:     s.ExportToURL(),
 	}, nil
@@ -121,16 +121,11 @@ func normalizeCertHash(hash string) string {
 // ref: https://v2.hysteria.network/zh/docs/developers/URI-Scheme/
 func ParseHysteria2URL(link string) (*Hysteria2, error) {
 	// TODO: support salamander obfuscation
-	t, err := url.Parse(link)
+	u, err := url.Parse(link)
 	if err != nil {
 		return nil, err
 	}
-	port, err := strconv.Atoi(t.Port())
-	if err != nil {
-		return nil, dialer.InvalidParameterErr
-	}
-	q := t.Query()
-	sni := q.Get("sni")
+	q := u.Query()
 	var insecure bool
 	if insecureValue := q.Get("insecure"); insecureValue != "" {
 		insecure, err = strconv.ParseBool(q.Get("insecure"))
@@ -150,24 +145,23 @@ func ParseHysteria2URL(link string) (*Hysteria2, error) {
 		}
 	}
 	conf := &Hysteria2{
-		Name:      t.Fragment,
-		User:      t.User.Username(),
-		Server:    t.Hostname(),
-		Port:      port,
+		Name:      u.Fragment,
+		User:      u.User.Username(),
+		Server:    u.Host,
 		Insecure:  insecure,
-		Sni:       sni,
+		Sni:       q.Get("sni"),
 		PinSHA256: q.Get("pinSHA256"),
 		MaxTx:     maxTx,
 		MaxRx:     maxRx,
 	}
-	conf.Password, _ = t.User.Password()
+	conf.Password, _ = u.User.Password()
 	return conf, nil
 }
 
 func (s *Hysteria2) ExportToURL() string {
 	t := url.URL{
 		Scheme:   "hysteria2",
-		Host:     net.JoinHostPort(s.Server, strconv.Itoa(s.Port)),
+		Host:     s.Server,
 		User:     url.User(s.User),
 		Fragment: s.Name,
 	}
