@@ -17,15 +17,14 @@ const (
 )
 
 type udpHopPacketConn struct {
-	Addr          net.Addr
-	Addrs         []net.Addr
-	HopInterval   time.Duration
-	ListenUDPFunc ListenUDPFunc
+	Addr        net.Addr
+	Addrs       []net.Addr
+	HopInterval time.Duration
+	dialFunc    dialFunc
 
 	connMutex   sync.RWMutex
 	prevConn    net.PacketConn
 	currentConn net.PacketConn
-	addrIndex   int
 
 	readBufferSize  int
 	writeBufferSize int
@@ -44,37 +43,33 @@ type udpPacket struct {
 	Err  error
 }
 
-type ListenUDPFunc = func() (net.PacketConn, error)
+type dialFunc = func(addr net.Addr) (net.PacketConn, error)
 
-func NewUDPHopPacketConn(addr *UDPHopAddr, hopInterval time.Duration, listenUDPFunc ListenUDPFunc) (net.PacketConn, error) {
+func NewUDPHopPacketConn(addr *UDPHopAddr, hopInterval time.Duration, dialFunc dialFunc) (net.PacketConn, error) {
 	if hopInterval == 0 {
 		hopInterval = defaultHopInterval
 	} else if hopInterval < 5*time.Second {
 		return nil, errors.New("hop interval must be at least 5 seconds")
 	}
-	if listenUDPFunc == nil {
-		listenUDPFunc = func() (net.PacketConn, error) {
-			return net.ListenUDP("udp", nil)
-		}
-	}
 	addrs, err := addr.addrs()
 	if err != nil {
 		return nil, err
 	}
-	curConn, err := listenUDPFunc()
+
+	newAddrIndex := rand.Intn(len(addrs))
+	curConn, err := dialFunc(addrs[newAddrIndex])
 	if err != nil {
 		return nil, err
 	}
 	hConn := &udpHopPacketConn{
-		Addr:          addr,
-		Addrs:         addrs,
-		HopInterval:   hopInterval,
-		ListenUDPFunc: listenUDPFunc,
-		prevConn:      nil,
-		currentConn:   curConn,
-		addrIndex:     rand.Intn(len(addrs)),
-		recvQueue:     make(chan *udpPacket, packetQueueSize),
-		closeChan:     make(chan struct{}),
+		Addr:        addr,
+		Addrs:       addrs,
+		HopInterval: hopInterval,
+		dialFunc:    dialFunc,
+		prevConn:    nil,
+		currentConn: curConn,
+		recvQueue:   make(chan *udpPacket, packetQueueSize),
+		closeChan:   make(chan struct{}),
 		bufPool: sync.Pool{
 			New: func() interface{} {
 				return make([]byte, udpBufferSize)
@@ -130,7 +125,8 @@ func (u *udpHopPacketConn) hop() {
 	if u.closed {
 		return
 	}
-	newConn, err := u.ListenUDPFunc()
+	newAddrIndex := rand.Intn(len(u.Addrs))
+	newConn, err := u.dialFunc(u.Addrs[newAddrIndex])
 	if err != nil {
 		// Could be temporary, just skip this hop
 		return
@@ -156,8 +152,6 @@ func (u *udpHopPacketConn) hop() {
 		_ = trySetWriteBuffer(u.currentConn, u.writeBufferSize)
 	}
 	go u.recvLoop(newConn)
-	// Update addrIndex to a new random value
-	u.addrIndex = rand.Intn(len(u.Addrs))
 }
 
 func (u *udpHopPacketConn) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
@@ -178,7 +172,7 @@ func (u *udpHopPacketConn) ReadFrom(b []byte) (n int, addr net.Addr, err error) 
 	}
 }
 
-func (u *udpHopPacketConn) WriteTo(b []byte, addr net.Addr) (n int, err error) {
+func (u *udpHopPacketConn) WriteTo(b []byte, _ net.Addr) (n int, err error) {
 	u.connMutex.RLock()
 	defer u.connMutex.RUnlock()
 	if u.closed {
@@ -186,7 +180,7 @@ func (u *udpHopPacketConn) WriteTo(b []byte, addr net.Addr) (n int, err error) {
 	}
 	// Skip the check for now, always write to the server,
 	// for the same reason as in ReadFrom.
-	return u.currentConn.WriteTo(b, u.Addrs[u.addrIndex])
+	return u.currentConn.WriteTo(b, u.Addr)
 }
 
 func (u *udpHopPacketConn) Close() error {

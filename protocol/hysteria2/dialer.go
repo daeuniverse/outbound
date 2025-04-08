@@ -11,6 +11,7 @@ import (
 	"github.com/daeuniverse/outbound/protocol"
 	"github.com/daeuniverse/outbound/protocol/hysteria2/client"
 	"github.com/daeuniverse/outbound/protocol/hysteria2/udphop"
+	"github.com/daeuniverse/outbound/protocol/tuic/common"
 )
 
 func init() {
@@ -64,30 +65,40 @@ func NewDialer(nextDialer netproxy.Dialer, header protocol.Header) (netproxy.Dia
 		return nil, err
 	}
 
-	var newFunc func(addr net.Addr) (net.PacketConn, error)
 	if config.ServerAddr.Network() == "udphop" {
-		hopAddr := config.ServerAddr.(*udphop.UDPHopAddr)
-		newFunc = func(addr net.Addr) (net.PacketConn, error) {
-			return udphop.NewUDPHopPacketConn(hopAddr, config.UDPHopInterval, ListenUDP)
+		config.ConnFactory = &client.UdpConnFactory{
+			NewFunc: func(ctx context.Context) (net.PacketConn, error) {
+				dialFunc := func(addr net.Addr) (net.PacketConn, error) {
+					conn, err := nextDialer.DialContext(ctx, "udp", addr.String())
+					if err != nil {
+						return nil, err
+					}
+					return netproxy.NewFakeNetPacketConn(
+						conn.(netproxy.PacketConn),
+						net.UDPAddrFromAddrPort(common.GetUniqueFakeAddrPort()),
+						addr,
+					), nil
+				}
+				return udphop.NewUDPHopPacketConn(config.ServerAddr.(*udphop.UDPHopAddr), config.UDPHopInterval, dialFunc)
+			},
 		}
 	} else {
-		newFunc = func(addr net.Addr) (net.PacketConn, error) {
-			return ListenUDP()
+		config.ConnFactory = &client.UdpConnFactory{
+			NewFunc: func(ctx context.Context) (net.PacketConn, error) {
+				conn, err := nextDialer.DialContext(ctx, "udp", config.ServerAddr.String())
+				if err != nil {
+					return nil, err
+				}
+				return netproxy.NewFakeNetPacketConn(
+					conn.(netproxy.PacketConn),
+					net.UDPAddrFromAddrPort(common.GetUniqueFakeAddrPort()),
+					config.ServerAddr,
+				), nil
+			},
 		}
 	}
-	config.ConnFactory = &adaptiveConnFactory{
-		NewFunc: newFunc,
-	}
 
-	client, err := client.NewReconnectableClient(
-		func() (*client.Config, error) {
-			return config, nil
-		},
-		func(c client.Client, hi *client.HandshakeInfo, i int) {
-			// Do nothing
-		},
-		true,
-	)
+	client, err := client.NewClient(config)
 	if err != nil {
 		return nil, err
 	}
@@ -96,20 +107,6 @@ func NewDialer(nextDialer netproxy.Dialer, header protocol.Header) (netproxy.Dia
 		client:   client,
 		metadata: metadata,
 	}, nil
-}
-
-// TODO: mark?
-func ListenUDP() (uconn net.PacketConn, err error) {
-	uconn, err = net.ListenUDP("udp", nil)
-	return
-}
-
-type adaptiveConnFactory struct {
-	NewFunc func(addr net.Addr) (net.PacketConn, error)
-}
-
-func (f *adaptiveConnFactory) New(addr net.Addr) (net.PacketConn, error) {
-	return f.NewFunc(addr)
 }
 
 // parseServerAddrString parses server address string.
@@ -128,7 +125,7 @@ func isPortHoppingPort(port string) bool {
 	return strings.Contains(port, "-") || strings.Contains(port, ",")
 }
 
-func (d *Dialer) DialContext(_ context.Context, network, address string) (netproxy.Conn, error) {
+func (d *Dialer) DialContext(ctx context.Context, network, address string) (netproxy.Conn, error) {
 	magicNetwork, err := netproxy.ParseMagicNetwork(network)
 	if err != nil {
 		return nil, err
@@ -136,9 +133,9 @@ func (d *Dialer) DialContext(_ context.Context, network, address string) (netpro
 
 	switch magicNetwork.Network {
 	case "tcp":
-		return d.client.TCP(address)
+		return d.client.TCP(address, ctx)
 	case "udp":
-		return d.client.UDP(address)
+		return d.client.UDP(address, ctx)
 	default:
 		return nil, fmt.Errorf("unsupported network: %s", network)
 	}
