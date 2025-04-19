@@ -42,7 +42,8 @@ func NewDialer(nextDialer netproxy.Dialer, header protocol.Header) (netproxy.Dia
 			VerifyPeerCertificate: header.TlsConfig.VerifyPeerCertificate,
 			RootCAs:               header.TlsConfig.RootCAs,
 		},
-		Auth: header.User,
+		Auth:     header.User,
+		FastOpen: true,
 	}
 	if header.SNI == "" {
 		config.TLSConfig.ServerName = host
