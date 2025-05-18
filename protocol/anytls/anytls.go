@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"log/slog"
 	"strconv"
 	"sync"
 
@@ -80,10 +81,11 @@ var _ netproxy.Conn = (*anytlsConn)(nil)
 
 type anytlsConn struct {
 	netproxy.Conn
-	buf        bytes.Buffer
 	metadata   protocol.Metadata
 	writeMutex sync.Mutex
 	readMutex  sync.Mutex
+
+	readBuf bytes.Buffer
 
 	sid uint32
 }
@@ -118,7 +120,7 @@ func (d *Dialer) newAnytlsConn(conn netproxy.Conn, metadata protocol.Metadata) (
 		return nil, err
 	}
 
-	return &anytlsConn{Conn: conn, buf: bytes.Buffer{}, metadata: metadata, sid: d.sid.Load()}, nil
+	return &anytlsConn{Conn: conn, metadata: metadata, sid: d.sid.Load()}, nil
 }
 
 func (c *anytlsConn) Write(b []byte) (n int, err error) {
@@ -134,35 +136,39 @@ func (c *anytlsConn) Read(b []byte) (n int, err error) {
 	c.readMutex.Lock()
 	defer c.readMutex.Unlock()
 
-	return c.Conn.Read(b)
+	if c.readBuf.Len() > 0 {
+		return c.readBuf.Read(b)
+	}
 
 	var header rawHeader
 	if _, err := io.ReadFull(c.Conn, header[:]); err != nil {
 		return 0, err
 	}
-	var buf []byte
-	if header.Cmd() <= cmdServerSettings || header.Cmd() >= cmdWaste {
-		buf = pool.Get(int(header.Length()))
-		defer pool.Put(buf)
-	}
 	switch header.Cmd() {
 	case cmdWaste:
-		io.ReadFull(c.Conn, buf)
-		return 0, nil
-	case cmdSYN:
-		if c.buf.Len() > 0 {
-			return c.buf.Read(b)
-		}
+		buf := pool.Get(int(header.Length()))
+		defer pool.Put(buf)
 		if _, err := io.ReadFull(c.Conn, buf); err != nil {
 			return 0, err
 		}
-		c.buf.Write(buf)
-		return c.buf.Read(b)
-	case cmdUpdatePaddingScheme:
+		return 0, nil
+	case cmdPSH:
+		buf := pool.Get(int(header.Length()))
+		defer pool.Put(buf)
+		if _, err := io.ReadFull(c.Conn, buf); err != nil {
+			return 0, err
+		}
+		c.readBuf.Write(buf)
+		return c.readBuf.Read(b)
 	case cmdAlert:
-		return 0, fmt.Errorf("alert: %s", string(buf))
+		buf := pool.Get(int(header.Length()))
+		defer pool.Put(buf)
+		if _, err := io.ReadFull(c.Conn, buf); err != nil {
+			return 0, err
+		}
+		slog.Error("[Alert from server]", "msg", string(buf))
+		return 0, nil
 	default:
 		return 0, fmt.Errorf("invalid cmd: %d", header.Cmd())
 	}
-	return 0, nil
 }
