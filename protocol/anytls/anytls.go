@@ -174,7 +174,7 @@ func (c *anytlsConn) Read(b []byte) (n int, err error) {
 		slog.Error("[Alert from server]", "msg", string(buf))
 		return 0, nil
 	case cmdFIN:
-		return 0, c.Conn.Close()
+		return 0, nil
 	default:
 		return 0, fmt.Errorf("invalid cmd: %d", header.Cmd())
 	}
