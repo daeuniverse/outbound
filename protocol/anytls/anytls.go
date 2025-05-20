@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/netip"
 	"strconv"
 	"sync"
 
@@ -77,7 +78,10 @@ func writeFrame(conn io.Writer, frame frame) (int, error) {
 	return dataLen, nil
 }
 
-var _ netproxy.Conn = (*anytlsConn)(nil)
+var (
+	_ netproxy.Conn       = (*anytlsConn)(nil)
+	_ netproxy.PacketConn = (*anytlsConn)(nil)
+)
 
 type anytlsConn struct {
 	netproxy.Conn
@@ -86,6 +90,7 @@ type anytlsConn struct {
 	readMutex  sync.Mutex
 
 	readBuf bytes.Buffer
+	addr    netip.AddrPort
 
 	sid uint32
 }
@@ -168,7 +173,43 @@ func (c *anytlsConn) Read(b []byte) (n int, err error) {
 		}
 		slog.Error("[Alert from server]", "msg", string(buf))
 		return 0, nil
+	case cmdFIN:
+		return 0, c.Conn.Close()
 	default:
 		return 0, fmt.Errorf("invalid cmd: %d", header.Cmd())
 	}
+}
+
+func (c *anytlsConn) ReadFrom(p []byte) (int, netip.AddrPort, error) {
+	data := pool.Get(2 + len(p))
+	defer pool.Put(data)
+	n, err := c.Read(data)
+	if err != nil {
+		return 0, netip.AddrPort{}, err
+	}
+	copy(p, data[2:n])
+	return n, c.addr, nil
+}
+
+func (c *anytlsConn) WriteTo(p []byte, addr string) (n int, err error) {
+	c.writeMutex.Lock()
+	defer c.writeMutex.Unlock()
+	tgtAddr, err := socks.ParseAddr(addr)
+	if err != nil {
+		return 0, err
+	}
+	data := pool.Get(1 + len(tgtAddr) + 2 + len(p))
+	defer pool.Put(data)
+	data[0] = 1
+	copy(data[1:], tgtAddr)
+	binary.BigEndian.PutUint16(data[1+len(tgtAddr):], uint16(len(p)))
+	copy(data[1+len(tgtAddr)+2:], p)
+
+	frame := newFrame(cmdPSH, c.sid)
+	frame.data = data
+	if _, err := writeFrame(c.Conn, frame); err != nil {
+		return 0, err
+	}
+	c.addr = netip.MustParseAddrPort(addr)
+	return len(p), nil
 }

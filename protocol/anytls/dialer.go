@@ -63,7 +63,9 @@ func (d *Dialer) DialContext(ctx context.Context, network string, addr string) (
 			return nil, err
 		}
 		mdata.IsClient = d.metadata.IsClient
-
+		if magicNetwork.Network == "udp" {
+			mdata.Hostname = "sp.v2.udp-over-tcp.arpa"
+		}
 		tcpNetwork := netproxy.MagicNetwork{
 			Network: "tcp",
 			Mark:    magicNetwork.Mark,
