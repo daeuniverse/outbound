@@ -12,16 +12,38 @@ import (
 
 	"github.com/daeuniverse/outbound/dialer"
 	"github.com/daeuniverse/outbound/netproxy"
+	transportTls "github.com/daeuniverse/outbound/transport/tls"
 	"github.com/gorilla/websocket"
 )
 
+func parseRange(str string) (min, max int64, err error) {
+	stringArr := strings.Split(str, "-")
+	if len(stringArr) != 2 {
+		return 0, 0, fmt.Errorf("invalid range: %s", str)
+	}
+	min, err = strconv.ParseInt(stringArr[0], 10, 64)
+	if err != nil {
+		return 0, 0, err
+	}
+	max, err = strconv.ParseInt(stringArr[1], 10, 64)
+	if err != nil {
+		return 0, 0, err
+	}
+	return min, max, nil
+}
+
 // Ws is a base Ws struct
 type Ws struct {
-	dialer          netproxy.Dialer
-	wsAddr          string
-	header          http.Header
-	tlsClientConfig *tls.Config
-	passthroughUdp  bool
+	dialer              netproxy.Dialer
+	wsAddr              string
+	header              http.Header
+	tlsClientConfig     *tls.Config
+	passthroughUdp      bool
+	tlsFragmentation    bool
+	fragmentMinLength   int64
+	fragmentMaxLength   int64
+	fragmentMinInterval int64
+	fragmentMaxInterval int64
 }
 
 // NewWs returns a Ws infra.
@@ -69,6 +91,22 @@ func NewWs(option *dialer.ExtraOption, nextDialer netproxy.Dialer, link string) 
 		if len(query.Get("alpn")) > 0 {
 			t.tlsClientConfig.NextProtos = strings.Split(query.Get("alpn"), ",")
 		}
+
+		if option.TlsFragment {
+			t.tlsFragmentation = true
+			minLen, maxLen, err := parseRange(option.TlsFragmentLength)
+			if err != nil {
+				return nil, nil, err
+			}
+			t.fragmentMinLength = minLen
+			t.fragmentMaxLength = maxLen
+			minInterval, maxInterval, err := parseRange(option.TlsFragmentInterval)
+			if err != nil {
+				return nil, nil, err
+			}
+			t.fragmentMinInterval = minInterval
+			t.fragmentMaxInterval = maxInterval
+		}
 	}
 	return t, &dialer.Property{
 		Name:     u.Fragment,
@@ -91,6 +129,11 @@ func (s *Ws) DialContext(ctx context.Context, network, addr string) (c netproxy.
 				if err != nil {
 					return nil, err
 				}
+
+				if s.tlsFragmentation {
+					c = transportTls.NewFragmentConn(c, s.fragmentMinLength, s.fragmentMaxLength, s.fragmentMinInterval, s.fragmentMaxInterval)
+				}
+
 				return &netproxy.FakeNetConn{
 					Conn:  c,
 					LAddr: nil,
