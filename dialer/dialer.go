@@ -8,11 +8,14 @@ var (
 )
 
 type ExtraOption struct {
-	AllowInsecure     bool
-	TlsImplementation string
-	UtlsImitate       string
-	BandwidthMaxTx    string
-	BandwidthMaxRx    string
+	AllowInsecure       bool
+	TlsImplementation   string
+	TlsFragment         bool
+	TlsFragmentLength   string
+	TlsFragmentInterval string
+	UtlsImitate         string
+	BandwidthMaxTx      string
+	BandwidthMaxRx      string
 }
 
 type Property struct {

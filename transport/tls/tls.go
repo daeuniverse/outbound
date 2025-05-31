@@ -15,13 +15,18 @@ import (
 
 // Tls is a base Tls struct
 type Tls struct {
-	dialer          netproxy.Dialer
-	addr            string
-	serverName      string
-	skipVerify      bool
-	tlsImplentation string
-	utlsImitate     string
-	passthroughUdp  bool
+	dialer              netproxy.Dialer
+	addr                string
+	serverName          string
+	skipVerify          bool
+	tlsImplentation     string
+	utlsImitate         string
+	passthroughUdp      bool
+	fragmentation       bool
+	fragmentMinLength   int64
+	fragmentMaxLength   int64
+	fragmentMinInterval int64
+	fragmentMaxInterval int64
 
 	tlsConfig *tls.Config
 }
@@ -73,6 +78,22 @@ func NewTls(option *dialer.ExtraOption, nextDialer netproxy.Dialer, link string)
 		t.tlsConfig.NextProtos = strings.Split(query.Get("alpn"), ",")
 	}
 
+	if option.TlsFragment {
+		t.fragmentation = true
+		minLen, maxLen, err := parseRange(option.TlsFragmentLength)
+		if err != nil {
+			return nil, nil, err
+		}
+		t.fragmentMinLength = minLen
+		t.fragmentMaxLength = maxLen
+		minInterval, maxInterval, err := parseRange(option.TlsFragmentInterval)
+		if err != nil {
+			return nil, nil, err
+		}
+		t.fragmentMinInterval = minInterval
+		t.fragmentMaxInterval = maxInterval
+	}
+
 	return t, &dialer.Property{
 		Name:     u.Fragment,
 		Address:  t.addr,
@@ -91,6 +112,10 @@ func (s *Tls) DialContext(ctx context.Context, network, addr string) (c netproxy
 		rc, err := s.dialer.DialContext(ctx, network, s.addr)
 		if err != nil {
 			return nil, fmt.Errorf("[Tls]: dial to %s: %w", s.addr, err)
+		}
+
+		if s.fragmentation {
+			rc = NewFragmentConn(rc, s.fragmentMinLength, s.fragmentMaxLength, s.fragmentMinInterval, s.fragmentMaxInterval)
 		}
 
 		var tlsConn interface {
