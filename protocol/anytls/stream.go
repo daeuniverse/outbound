@@ -49,6 +49,9 @@ func newStream(session *session, addr netip.AddrPort, id uint32) *stream {
 }
 
 func (c *stream) Write(b []byte) (n int, err error) {
+	if c.closed.Load() {
+		return 0, net.ErrClosed
+	}
 	c.writeMutex.Lock()
 	defer c.writeMutex.Unlock()
 
@@ -58,6 +61,9 @@ func (c *stream) Write(b []byte) (n int, err error) {
 }
 
 func (c *stream) Read(b []byte) (n int, err error) {
+	if c.closed.Load() {
+		return 0, net.ErrClosed
+	}
 	c.readMutex.Lock()
 	defer c.readMutex.Unlock()
 	return c.pr.Read(b)
@@ -104,6 +110,12 @@ func (c *stream) SetWriteDeadline(t time.Time) error {
 }
 
 func (c *stream) ReadFrom(p []byte) (int, netip.AddrPort, error) {
+	if c.closed.Load() {
+		return 0, netip.AddrPort{}, net.ErrClosed
+	}
+	c.writeMutex.Lock()
+	defer c.writeMutex.Unlock()
+
 	var length uint16
 	if err := binary.Read(c, binary.BigEndian, &length); err != nil {
 		return 0, netip.AddrPort{}, err
@@ -119,6 +131,9 @@ func (c *stream) ReadFrom(p []byte) (int, netip.AddrPort, error) {
 }
 
 func (c *stream) WriteTo(p []byte, addr string) (n int, err error) {
+	if c.closed.Load() {
+		return 0, net.ErrClosed
+	}
 	c.writeMutex.Lock()
 	defer c.writeMutex.Unlock()
 
