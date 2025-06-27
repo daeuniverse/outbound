@@ -7,7 +7,9 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
+	"strconv"
 	"sync"
+	"sync/atomic"
 
 	"github.com/daeuniverse/outbound/netproxy"
 	"github.com/daeuniverse/outbound/pool"
@@ -25,8 +27,10 @@ type Dialer struct {
 	key          []byte
 	tlsConfig    *tls.Config
 
-	sessionLock sync.Mutex
-	session     *session
+	sessionCounter atomic.Uint64
+
+	idleSessionLock sync.Mutex
+	idleSessions    map[uint64]*session
 }
 
 func NewDialer(nextDialer netproxy.Dialer, header protocol.Header) (netproxy.Dialer, error) {
@@ -40,6 +44,7 @@ func NewDialer(nextDialer netproxy.Dialer, header protocol.Header) (netproxy.Dia
 		metadata:     metadata,
 		key:          sum[:],
 		tlsConfig:    header.TlsConfig,
+		idleSessions: make(map[uint64]*session),
 	}, nil
 }
 
@@ -80,20 +85,25 @@ func (d *Dialer) DialContext(ctx context.Context, network string, addr string) (
 		if err != nil {
 			return nil, err
 		}
-		streamAddr := fmt.Sprintf("%s:%d", mdata.Hostname, mdata.Port)
-		return s.newStream(streamAddr)
+		if magicNetwork.Network == "udp" {
+			streamAddr := net.JoinHostPort(mdata.Hostname, strconv.Itoa(int(mdata.Port)))
+			return s.newPacketStream(streamAddr, addr)
+		}
+		return s.newStream(addr)
 	default:
 		return nil, fmt.Errorf("%w: %v", netproxy.UnsupportedTunnelTypeError, magicNetwork.Network)
 	}
 }
 
 func (d *Dialer) getSession(ctx context.Context, tcpNetwork string) (*session, error) {
-	d.sessionLock.Lock()
-	defer d.sessionLock.Unlock()
-
-	if d.session != nil && !d.session.Closed() {
-		return d.session, nil
+	d.idleSessionLock.Lock()
+	for seq := range d.idleSessions {
+		s := d.idleSessions[seq]
+		delete(d.idleSessions, seq)
+		d.idleSessionLock.Unlock()
+		return s, nil
 	}
+	d.idleSessionLock.Unlock()
 
 	rawConn, err := d.nextDialer.DialContext(ctx, tcpNetwork, d.proxyAddress)
 	if err != nil {
@@ -112,9 +122,22 @@ func (d *Dialer) getSession(ctx context.Context, tcpNetwork string) (*session, e
 		return nil, err
 	}
 
-	s := newSession(tlsConn)
-	d.session = s
-	go d.session.run()
+	seq := d.sessionCounter.Add(1)
+	s := newSession(tlsConn, seq)
 
-	return d.session, nil
+	streamClosed := make(chan uint64)
+	sessionClosed := make(chan struct{})
+	go s.run(streamClosed, sessionClosed)
+	go func(s *session) {
+		select {
+		case <-sessionClosed:
+			return
+		case seq := <-streamClosed:
+			d.idleSessionLock.Lock()
+			d.idleSessions[seq] = s
+			d.idleSessionLock.Unlock()
+		}
+	}(s)
+
+	return s, nil
 }

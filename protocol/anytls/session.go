@@ -5,7 +5,6 @@ import (
 	"io"
 	"log/slog"
 	"net"
-	"net/netip"
 	"runtime/debug"
 	"sync"
 	"sync/atomic"
@@ -21,18 +20,20 @@ type session struct {
 	streams    map[uint32]*stream
 	streamLock sync.RWMutex
 
+	seq    uint64
 	sid    atomic.Uint32
 	closed atomic.Bool
 }
 
-func newSession(conn netproxy.Conn) *session {
+func newSession(conn netproxy.Conn, seq uint64) *session {
 	return &session{
 		conn:    conn,
 		streams: map[uint32]*stream{},
+		seq:     seq,
 	}
 }
 
-func (s *session) newStream(addr string) (netproxy.Conn, error) {
+func (s *session) newStream(addr string) (*stream, error) {
 	s.sid.Add(1)
 	sid := s.sid.Load()
 
@@ -57,13 +58,23 @@ func (s *session) newStream(addr string) (netproxy.Conn, error) {
 		return nil, err
 	}
 
-	adr, _ := netip.ParseAddrPort(addr)
-	stream := newStream(s, adr, sid)
+	stream := newStream(s, sid)
 	s.streamLock.Lock()
 	s.streams[sid] = stream
 	s.streamLock.Unlock()
 
 	return stream, nil
+}
+
+func (s *session) newPacketStream(addr, packetAddr string) (*packetStream, error) {
+	stream, err := s.newStream(addr)
+	if err != nil {
+		return nil, err
+	}
+	return &packetStream{
+		stream: stream,
+		addr:   packetAddr,
+	}, nil
 }
 
 func (s *session) removeStream(sid uint32) {
@@ -72,8 +83,9 @@ func (s *session) removeStream(sid uint32) {
 	s.streamLock.Unlock()
 }
 
-func (s *session) run() error {
+func (s *session) run(streamClosed chan uint64, sessionClosed chan struct{}) error {
 	defer func() {
+		sessionClosed <- struct{}{}
 		if r := recover(); r != nil {
 			slog.Error("[Panic]", slog.String("stack", string(debug.Stack())))
 		}
@@ -137,6 +149,7 @@ func (s *session) run() error {
 			s.streamLock.RUnlock()
 			if ok {
 				stream.remoteClose()
+				streamClosed <- s.seq
 			}
 		default:
 			return fmt.Errorf("invalid cmd: %d", header.Cmd())
@@ -148,8 +161,8 @@ func (s *session) Close() error {
 	if s.closed.CompareAndSwap(false, true) {
 		s.streamLock.Lock()
 		defer s.streamLock.Unlock()
-		for _, stream := range s.streams {
-			stream.remoteClose()
+		for i := range s.streams {
+			delete(s.streams, i)
 		}
 		s.streams = make(map[uint32]*stream)
 		return s.conn.Close()

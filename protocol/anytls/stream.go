@@ -16,7 +16,7 @@ import (
 
 var (
 	_ netproxy.Conn       = (*stream)(nil)
-	_ netproxy.PacketConn = (*stream)(nil)
+	_ netproxy.PacketConn = (*packetStream)(nil)
 )
 
 type stream struct {
@@ -28,22 +28,18 @@ type stream struct {
 	writeMutex sync.Mutex
 	readMutex  sync.Mutex
 
-	addr netip.AddrPort
-
-	udpWriteAddr atomic.Bool
-	closed       atomic.Bool
+	closed atomic.Bool
 
 	id uint32
 }
 
-func newStream(session *session, addr netip.AddrPort, id uint32) *stream {
+func newStream(session *session, id uint32) *stream {
 	pr, pw := io.Pipe()
 	return &stream{
 		conn:    session.conn.(net.Conn),
 		session: session,
 		pr:      pr,
 		pw:      pw,
-		addr:    addr,
 		id:      id,
 	}
 }
@@ -109,35 +105,52 @@ func (c *stream) SetWriteDeadline(t time.Time) error {
 	return c.conn.SetWriteDeadline(t)
 }
 
-func (c *stream) ReadFrom(p []byte) (int, netip.AddrPort, error) {
-	if c.closed.Load() {
+type packetStream struct {
+	*stream
+
+	addr         string
+	udpWriteAddr atomic.Bool
+}
+
+func (ps *packetStream) Read(p []byte) (n int, err error) {
+	n, _, err = ps.ReadFrom(p)
+	return n, err
+}
+
+func (ps *packetStream) ReadFrom(p []byte) (int, netip.AddrPort, error) {
+	if ps.closed.Load() {
 		return 0, netip.AddrPort{}, net.ErrClosed
 	}
-	c.writeMutex.Lock()
-	defer c.writeMutex.Unlock()
+	ps.readMutex.Lock()
+	defer ps.readMutex.Unlock()
 
 	var length uint16
-	if err := binary.Read(c, binary.BigEndian, &length); err != nil {
+	if err := binary.Read(ps.pr, binary.BigEndian, &length); err != nil {
 		return 0, netip.AddrPort{}, err
 	}
 	if len(p) < int(length) {
 		return 0, netip.AddrPort{}, io.ErrShortBuffer
 	}
-	n, err := io.ReadFull(c, p[:length])
+	n, err := io.ReadFull(ps.pr, p[:length])
 	if err != nil {
 		return 0, netip.AddrPort{}, err
 	}
-	return n, c.addr, nil
+	addr, _ := netip.ParseAddrPort(ps.addr)
+	return n, addr, nil
 }
 
-func (c *stream) WriteTo(p []byte, addr string) (n int, err error) {
-	if c.closed.Load() {
+func (ps *packetStream) Write(p []byte) (n int, err error) {
+	return ps.WriteTo(p, ps.addr)
+}
+
+func (ps *packetStream) WriteTo(p []byte, addr string) (n int, err error) {
+	if ps.closed.Load() {
 		return 0, net.ErrClosed
 	}
-	c.writeMutex.Lock()
-	defer c.writeMutex.Unlock()
+	ps.writeMutex.Lock()
+	defer ps.writeMutex.Unlock()
 
-	if c.udpWriteAddr.CompareAndSwap(false, true) {
+	if ps.udpWriteAddr.CompareAndSwap(false, true) {
 		tgtAddr, err := socks.ParseAddr(addr)
 		if err != nil {
 			return 0, err
@@ -150,12 +163,11 @@ func (c *stream) WriteTo(p []byte, addr string) (n int, err error) {
 		binary.BigEndian.PutUint16(data[1+len(tgtAddr):], uint16(len(p)))
 		copy(data[1+len(tgtAddr)+2:], p)
 
-		frame := newFrame(cmdPSH, c.id)
+		frame := newFrame(cmdPSH, ps.id)
 		frame.data = data
-		if _, err := writeFrame(c.conn, frame); err != nil {
+		if _, err := writeFrame(ps.conn, frame); err != nil {
 			return 0, err
 		}
-		c.addr, _ = netip.ParseAddrPort(addr)
 		return len(p), nil
 	}
 
@@ -164,11 +176,10 @@ func (c *stream) WriteTo(p []byte, addr string) (n int, err error) {
 	binary.BigEndian.PutUint16(data, uint16(len(p)))
 	copy(data[2:], p)
 
-	frame := newFrame(cmdPSH, c.id)
+	frame := newFrame(cmdPSH, ps.id)
 	frame.data = data
-	if _, err := writeFrame(c.conn, frame); err != nil {
+	if _, err := writeFrame(ps.conn, frame); err != nil {
 		return 0, err
 	}
-	c.addr, _ = netip.ParseAddrPort(addr)
 	return len(p), nil
 }
