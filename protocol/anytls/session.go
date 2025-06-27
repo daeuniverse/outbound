@@ -20,16 +20,18 @@ type session struct {
 	streams    map[uint32]*stream
 	streamLock sync.RWMutex
 
-	seq    uint64
-	sid    atomic.Uint32
-	closed atomic.Bool
+	seq             uint64
+	sid             atomic.Uint32
+	closed          atomic.Bool
+	closeStreamChan chan uint32
 }
 
 func newSession(conn netproxy.Conn, seq uint64) *session {
 	return &session{
-		conn:    conn,
-		streams: map[uint32]*stream{},
-		seq:     seq,
+		conn:            conn,
+		streams:         map[uint32]*stream{},
+		seq:             seq,
+		closeStreamChan: make(chan uint32, 2),
 	}
 }
 
@@ -79,13 +81,13 @@ func (s *session) newPacketStream(addr, packetAddr string) (*packetStream, error
 
 func (s *session) removeStream(sid uint32) {
 	s.streamLock.Lock()
+	s.closeStreamChan <- sid
 	delete(s.streams, sid)
 	s.streamLock.Unlock()
 }
 
-func (s *session) run(streamClosed chan uint64, sessionClosed chan struct{}) error {
+func (s *session) run() error {
 	defer func() {
-		sessionClosed <- struct{}{}
 		if r := recover(); r != nil {
 			slog.Error("[Panic]", slog.String("stack", string(debug.Stack())))
 		}
@@ -149,7 +151,6 @@ func (s *session) run(streamClosed chan uint64, sessionClosed chan struct{}) err
 			s.streamLock.RUnlock()
 			if ok {
 				stream.remoteClose()
-				streamClosed <- s.seq
 			}
 		default:
 			return fmt.Errorf("invalid cmd: %d", header.Cmd())
@@ -162,7 +163,7 @@ func (s *session) Close() error {
 		s.streamLock.Lock()
 		defer s.streamLock.Unlock()
 		for i := range s.streams {
-			delete(s.streams, i)
+			s.streams[i].Close()
 		}
 		s.streams = make(map[uint32]*stream)
 		return s.conn.Close()

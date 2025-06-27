@@ -100,6 +100,9 @@ func (d *Dialer) getSession(ctx context.Context, tcpNetwork string) (*session, e
 	for seq := range d.idleSessions {
 		s := d.idleSessions[seq]
 		delete(d.idleSessions, seq)
+		if s.closed.Load() {
+			continue
+		}
 		d.idleSessionLock.Unlock()
 		return s, nil
 	}
@@ -124,20 +127,20 @@ func (d *Dialer) getSession(ctx context.Context, tcpNetwork string) (*session, e
 
 	seq := d.sessionCounter.Add(1)
 	s := newSession(tlsConn, seq)
-
-	streamClosed := make(chan uint64)
-	sessionClosed := make(chan struct{})
-	go s.run(streamClosed, sessionClosed)
 	go func(s *session) {
-		select {
-		case <-sessionClosed:
-			return
-		case seq := <-streamClosed:
+		for range s.closeStreamChan {
+			if s.closed.Load() {
+				return
+			}
 			d.idleSessionLock.Lock()
-			d.idleSessions[seq] = s
+			if _, ok := d.idleSessions[seq]; !ok {
+				d.idleSessions[seq] = s
+			}
 			d.idleSessionLock.Unlock()
 		}
 	}(s)
+
+	go s.run()
 
 	return s, nil
 }
