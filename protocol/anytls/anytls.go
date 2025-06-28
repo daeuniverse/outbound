@@ -2,7 +2,6 @@ package anytls
 
 import (
 	"encoding/binary"
-	"io"
 
 	"github.com/daeuniverse/outbound/pool"
 )
@@ -51,7 +50,7 @@ func (h rawHeader) Length() uint16 {
 	return binary.BigEndian.Uint16(h[5:])
 }
 
-func writeFrame(conn io.Writer, frame frame) (int, error) {
+func writeFrame(session *session, frame frame) (int, error) {
 	dataLen := len(frame.data)
 
 	buffer := pool.Get(dataLen + headerOverHeadSize)
@@ -61,7 +60,7 @@ func writeFrame(conn io.Writer, frame frame) (int, error) {
 	binary.BigEndian.PutUint32(buffer[1:], frame.sid)
 	binary.BigEndian.PutUint16(buffer[5:], uint16(dataLen))
 	copy(buffer[7:], frame.data)
-	_, err := conn.Write(buffer)
+	_, err := session.writeConn(buffer)
 	if err != nil {
 		return 0, err
 	}

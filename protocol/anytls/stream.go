@@ -20,10 +20,9 @@ var (
 )
 
 type stream struct {
-	conn    net.Conn
-	session *session
-	pr      *io.PipeReader
-	pw      *io.PipeWriter
+	*session
+	pr *io.PipeReader
+	pw *io.PipeWriter
 
 	writeMutex sync.Mutex
 	readMutex  sync.Mutex
@@ -36,7 +35,6 @@ type stream struct {
 func newStream(session *session, id uint32) *stream {
 	pr, pw := io.Pipe()
 	return &stream{
-		conn:    session.conn.(net.Conn),
 		session: session,
 		pr:      pr,
 		pw:      pw,
@@ -53,7 +51,7 @@ func (c *stream) Write(b []byte) (n int, err error) {
 
 	frame := newFrame(cmdPSH, c.id)
 	frame.data = b
-	return writeFrame(c.conn, frame)
+	return writeFrame(c.session, frame)
 }
 
 func (c *stream) Read(b []byte) (n int, err error) {
@@ -78,7 +76,7 @@ func (c *stream) Close() error {
 	if c.closed.CompareAndSwap(false, true) {
 		c.session.removeStream(c.id)
 		frame := newFrame(cmdFIN, c.id)
-		writeFrame(c.conn, frame)
+		_, _ = writeFrame(c.session, frame)
 		c.pw.Close()
 		return c.pr.Close()
 	}
@@ -86,11 +84,11 @@ func (c *stream) Close() error {
 }
 
 func (c *stream) LocalAddr() net.Addr {
-	return c.conn.LocalAddr()
+	return c.session.conn.(net.Conn).LocalAddr()
 }
 
 func (c *stream) RemoteAddr() net.Addr {
-	return c.conn.RemoteAddr()
+	return c.session.conn.(net.Conn).RemoteAddr()
 }
 
 func (c *stream) SetDeadline(t time.Time) error {
@@ -165,7 +163,7 @@ func (ps *packetStream) WriteTo(p []byte, addr string) (n int, err error) {
 
 		frame := newFrame(cmdPSH, ps.id)
 		frame.data = data
-		if _, err := writeFrame(ps.conn, frame); err != nil {
+		if _, err := writeFrame(ps.session, frame); err != nil {
 			return 0, err
 		}
 		return len(p), nil
@@ -178,7 +176,7 @@ func (ps *packetStream) WriteTo(p []byte, addr string) (n int, err error) {
 
 	frame := newFrame(cmdPSH, ps.id)
 	frame.data = data
-	if _, err := writeFrame(ps.conn, frame); err != nil {
+	if _, err := writeFrame(ps.session, frame); err != nil {
 		return 0, err
 	}
 	return len(p), nil

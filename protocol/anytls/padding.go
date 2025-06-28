@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"strconv"
 	"strings"
+	"sync/atomic"
 )
 
 const CheckMark = -1
@@ -21,10 +22,14 @@ var (
 5=500-1000
 6=500-1000
 7=500-1000`)
-	settingsBytes = fmt.Appendf(nil, "v=1\nclient=dae\npadding-md5=%x", md5.Sum(defaultPaddingScheme))
+	settingsBytes = func(padding *paddingFactory) []byte {
+		return fmt.Appendf(nil, "v=2\nclient=dae\npadding-md5=%s", padding.Md5)
+	}
 )
 
-type PaddingFactory struct {
+var DefaultPaddingFactory atomic.Value
+
+type paddingFactory struct {
 	scheme    map[string]string
 	RawScheme []byte
 	Stop      uint32
@@ -32,17 +37,18 @@ type PaddingFactory struct {
 }
 
 func init() {
-	UpdatePaddingScheme(defaultPaddingScheme)
+	updatePaddingScheme(defaultPaddingScheme)
 }
 
-func UpdatePaddingScheme(rawScheme []byte) bool {
+func updatePaddingScheme(rawScheme []byte) bool {
 	if p := NewPaddingFactory(rawScheme); p != nil {
+		DefaultPaddingFactory.Store(p)
 		return true
 	}
 	return false
 }
 
-func StringMapFromBytes(b []byte) map[string]string {
+func stringMapFromBytes(b []byte) map[string]string {
 	m := make(map[string]string)
 	lines := strings.Split(string(b), "\n")
 	for _, line := range lines {
@@ -54,12 +60,12 @@ func StringMapFromBytes(b []byte) map[string]string {
 	return m
 }
 
-func NewPaddingFactory(rawScheme []byte) *PaddingFactory {
-	p := &PaddingFactory{
+func NewPaddingFactory(rawScheme []byte) *paddingFactory {
+	p := &paddingFactory{
 		RawScheme: rawScheme,
 		Md5:       fmt.Sprintf("%x", md5.Sum(rawScheme)),
 	}
-	scheme := StringMapFromBytes(rawScheme)
+	scheme := stringMapFromBytes(rawScheme)
 	if len(scheme) == 0 {
 		return nil
 	}
@@ -72,7 +78,7 @@ func NewPaddingFactory(rawScheme []byte) *PaddingFactory {
 	return p
 }
 
-func (p *PaddingFactory) GenerateRecordPayloadSizes(pkt uint32) (pktSizes []int) {
+func (p *paddingFactory) GenerateRecordPayloadSizes(pkt uint32) (pktSizes []int) {
 	if s, ok := p.scheme[strconv.Itoa(int(pkt))]; ok {
 		sRanges := strings.Split(s, ",")
 		for _, sRange := range sRanges {

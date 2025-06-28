@@ -1,11 +1,14 @@
 package anytls
 
 import (
+	"encoding/binary"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"runtime/debug"
+	"slices"
+	"strconv"
 	"sync"
 	"sync/atomic"
 
@@ -15,10 +18,16 @@ import (
 )
 
 type session struct {
-	conn netproxy.Conn
+	conn     netproxy.Conn
+	connLock sync.Mutex
 
 	streams    map[uint32]*stream
 	streamLock sync.RWMutex
+
+	padding     atomic.Value
+	sendPadding bool
+	pktCounter  atomic.Uint32
+	peerVersion byte
 
 	seq             uint64
 	sid             atomic.Uint32
@@ -27,12 +36,15 @@ type session struct {
 }
 
 func newSession(conn netproxy.Conn, seq uint64) *session {
-	return &session{
+	s := &session{
 		conn:            conn,
 		streams:         map[uint32]*stream{},
 		seq:             seq,
 		closeStreamChan: make(chan uint32, 2),
+		sendPadding:     true,
 	}
+	s.padding.Store(DefaultPaddingFactory.Load())
+	return s
 }
 
 func (s *session) newStream(addr string) (*stream, error) {
@@ -40,13 +52,13 @@ func (s *session) newStream(addr string) (*stream, error) {
 	sid := s.sid.Load()
 
 	frame := newFrame(cmdSettings, sid)
-	frame.data = settingsBytes
-	if _, err := writeFrame(s.conn, frame); err != nil {
+	frame.data = settingsBytes(s.GetPadding())
+	if _, err := writeFrame(s, frame); err != nil {
 		return nil, err
 	}
 
 	frame = newFrame(cmdSYN, sid)
-	if _, err := writeFrame(s.conn, frame); err != nil {
+	if _, err := writeFrame(s, frame); err != nil {
 		return nil, err
 	}
 
@@ -56,7 +68,7 @@ func (s *session) newStream(addr string) (*stream, error) {
 	}
 	frame = newFrame(cmdPSH, sid)
 	frame.data = tgtAddr
-	if _, err := writeFrame(s.conn, frame); err != nil {
+	if _, err := writeFrame(s, frame); err != nil {
 		return nil, err
 	}
 
@@ -106,21 +118,9 @@ func (s *session) run() error {
 		length := int(header.Length())
 		switch header.Cmd() {
 		case cmdWaste:
-			buf := pool.Get(length)
-			if _, err := io.ReadFull(s.conn, buf); err != nil {
-				pool.Put(buf)
+			if _, err := io.CopyN(io.Discard, s.conn, int64(length)); err != nil {
 				return err
 			}
-			s.streamLock.RLock()
-			stream, ok := s.streams[sid]
-			s.streamLock.RUnlock()
-			if ok {
-				if _, err := stream.pw.Write(buf); err != nil {
-					pool.Put(buf)
-					return err
-				}
-			}
-			pool.Put(buf)
 		case cmdPSH:
 			buf := pool.Get(length)
 			if _, err := io.ReadFull(s.conn, buf); err != nil {
@@ -152,6 +152,52 @@ func (s *session) run() error {
 			if ok {
 				stream.remoteClose()
 			}
+		case cmdUpdatePaddingScheme:
+			if length > 0 {
+				buf := pool.Get(length)
+				if _, err := io.ReadFull(s.conn, buf); err != nil {
+					pool.Put(buf)
+					return err
+				}
+				updatePaddingScheme(buf)
+				pool.Put(buf)
+			}
+		case cmdSYNACK:
+			if length > 0 {
+				buf := pool.Get(length)
+				if _, err := io.ReadFull(s.conn, buf); err != nil {
+					pool.Put(buf)
+					return err
+				}
+				s.streamLock.RLock()
+				stream, ok := s.streams[sid]
+				s.streamLock.RUnlock()
+				if ok {
+					stream.Close()
+				}
+				pool.Put(buf)
+			}
+		case cmdServerSettings:
+			if length > 0 {
+				buffer := pool.Get(length)
+				if _, err := io.ReadFull(s.conn, buffer); err != nil {
+					pool.Put(buffer)
+					return err
+				}
+				// check server's version
+				m := stringMapFromBytes(buffer)
+				if v, err := strconv.Atoi(m["v"]); err == nil {
+					s.peerVersion = byte(v)
+				}
+				pool.Put(buffer)
+			}
+
+		case cmdHeartRequest:
+			frame := newFrame(cmdHeartResponse, sid)
+			if _, err := writeFrame(s, frame); err != nil {
+				return err
+			}
+		case cmdHeartResponse:
 		default:
 			return fmt.Errorf("invalid cmd: %d", header.Cmd())
 		}
@@ -173,4 +219,81 @@ func (s *session) Close() error {
 
 func (s *session) Closed() bool {
 	return s.closed.Load()
+}
+
+func (s *session) SetPadding(padding *paddingFactory) {
+	s.padding.Store(padding)
+}
+
+func (s *session) GetPadding() *paddingFactory {
+	return s.padding.Load().(*paddingFactory)
+}
+
+func (s *session) writeConn(b []byte) (n int, err error) {
+	s.connLock.Lock()
+	defer s.connLock.Unlock()
+
+	// calulate & send padding
+	if s.sendPadding {
+		pkt := s.pktCounter.Add(1)
+		paddingF := s.GetPadding()
+		if pkt < paddingF.Stop {
+			pktSizes := paddingF.GenerateRecordPayloadSizes(pkt)
+			for _, l := range pktSizes {
+				remainPayloadLen := len(b)
+				if l == CheckMark {
+					if remainPayloadLen == 0 {
+						break
+					} else {
+						continue
+					}
+				}
+				// logrus.Debugln(pkt, "write", l, "len", remainPayloadLen, "remain", remainPayloadLen-l)
+				if remainPayloadLen > l { // this packet is all payload
+					_, err = s.conn.Write(b[:l])
+					if err != nil {
+						return 0, err
+					}
+					n += l
+					b = b[l:]
+				} else if remainPayloadLen > 0 { // this packet contains padding and the last part of payload
+					paddingLen := l - remainPayloadLen - headerOverHeadSize
+					if paddingLen > 0 {
+						padding := make([]byte, headerOverHeadSize+paddingLen)
+						padding[0] = cmdWaste
+						binary.BigEndian.PutUint32(padding[1:5], 0)
+						binary.BigEndian.PutUint16(padding[5:7], uint16(paddingLen))
+						b = slices.Concat(b, padding)
+					}
+					_, err = s.conn.Write(b)
+					if err != nil {
+						return 0, err
+					}
+					n += remainPayloadLen
+					b = nil
+				} else { // this packet is all padding
+					padding := make([]byte, headerOverHeadSize+l)
+					padding[0] = cmdWaste
+					binary.BigEndian.PutUint32(padding[1:5], 0)
+					binary.BigEndian.PutUint16(padding[5:7], uint16(l))
+					_, err = s.conn.Write(padding)
+					if err != nil {
+						return 0, err
+					}
+					b = nil
+				}
+			}
+			// maybe still remain payload to write
+			if len(b) == 0 {
+				return
+			} else {
+				n2, err := s.conn.Write(b)
+				return n + n2, err
+			}
+		} else {
+			s.sendPadding = false
+		}
+	}
+
+	return s.conn.Write(b)
 }
