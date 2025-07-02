@@ -3,9 +3,11 @@ package client
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"net"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 
 	"github.com/daeuniverse/outbound/netproxy"
@@ -24,9 +26,8 @@ const (
 )
 
 type Client interface {
-	TCP(addr string) (netproxy.Conn, error)
-	UDP(addr string) (netproxy.Conn, error)
-	Close() error
+	TCP(addr string, ctx context.Context) (netproxy.Conn, error)
+	UDP(addr string, ctx context.Context) (netproxy.Conn, error)
 }
 
 type HandshakeInfo struct {
@@ -34,19 +35,17 @@ type HandshakeInfo struct {
 	Tx         uint64 // 0 if using BBR
 }
 
-func NewClient(config *Config) (Client, *HandshakeInfo, error) {
+func NewClient(config *Config) (Client, error) {
 	if err := config.verifyAndFill(); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	c := &clientImpl{
 		config: config,
 	}
-	info, err := c.connect()
-	if err != nil {
-		return nil, nil, err
-	}
-	return c, info, nil
+	return c, nil
 }
+
+// TODO: 同一个 dialer 不同 mark 如何处理 quic conn?
 
 type clientImpl struct {
 	config *Config
@@ -55,10 +54,12 @@ type clientImpl struct {
 	conn    quic.Connection
 
 	udpSM *udpSessionManager
+
+	m sync.Mutex
 }
 
-func (c *clientImpl) connect() (*HandshakeInfo, error) {
-	pktConn, err := c.config.ConnFactory.New(c.config.ServerAddr)
+func (c *clientImpl) connect(ctx context.Context) (*HandshakeInfo, error) {
+	pktConn, err := c.config.ConnFactory.New(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -94,8 +95,6 @@ func (c *clientImpl) connect() (*HandshakeInfo, error) {
 		},
 	}
 	// Send auth HTTP request
-	ctx, cancel := netproxy.NewDialTimeoutContext()
-	defer cancel()
 	u := &url.URL{
 		Scheme: "https",
 		Host:   protocol.URLHost,
@@ -157,6 +156,18 @@ func (c *clientImpl) connect() (*HandshakeInfo, error) {
 	}, nil
 }
 
+func (c *clientImpl) active() bool {
+	if c.conn == nil {
+		return false
+	}
+	select {
+	case <-c.conn.Context().Done():
+		return false
+	default:
+		return true
+	}
+}
+
 // openStream wraps the stream with QStream, which handles Close() properly
 func (c *clientImpl) openStream() (*utils.QStream, error) {
 	stream, err := c.conn.OpenStream()
@@ -166,16 +177,38 @@ func (c *clientImpl) openStream() (*utils.QStream, error) {
 	return &utils.QStream{Stream: stream}, nil
 }
 
-func (c *clientImpl) TCP(addr string) (netproxy.Conn, error) {
+func (c *clientImpl) TCP(addr string, ctx context.Context) (netproxy.Conn, error) {
+	c.m.Lock()
+	select {
+	case <-ctx.Done():
+		c.m.Unlock()
+		return nil, errors.New("context deadline exceeded")
+	default:
+	}
+	if !c.active() {
+		_, err := c.connect(ctx)
+		if err != nil {
+			c.m.Unlock()
+			return nil, err
+		}
+	}
+	c.m.Unlock()
+
 	stream, err := c.openStream()
 	if err != nil {
-		return nil, wrapIfConnectionClosed(err)
+		c.handleIfConnectionClosed(err)
+		return nil, err
+	}
+	if deadline, ok := ctx.Deadline(); ok {
+		stream.SetDeadline(deadline)
+		defer stream.SetDeadline(time.Time{})
 	}
 	// Send request
 	err = protocol.WriteTCPRequest(stream, addr)
 	if err != nil {
-		_ = stream.Close()
-		return nil, wrapIfConnectionClosed(err)
+		stream.Close()
+		c.handleIfConnectionClosed(err)
+		return nil, err
 	}
 	if c.config.FastOpen {
 		// Don't wait for the response when fast open is enabled.
@@ -192,7 +225,8 @@ func (c *clientImpl) TCP(addr string) (netproxy.Conn, error) {
 	ok, msg, err := protocol.ReadTCPResponse(stream)
 	if err != nil {
 		_ = stream.Close()
-		return nil, wrapIfConnectionClosed(err)
+		c.handleIfConnectionClosed(err)
+		return nil, err
 	}
 	if !ok {
 		_ = stream.Close()
@@ -206,17 +240,29 @@ func (c *clientImpl) TCP(addr string) (netproxy.Conn, error) {
 	}, nil
 }
 
-func (c *clientImpl) UDP(addr string) (netproxy.Conn, error) {
+func (c *clientImpl) UDP(addr string, ctx context.Context) (netproxy.Conn, error) {
+	c.m.Lock()
+	select {
+	case <-ctx.Done():
+		c.m.Unlock()
+		return nil, errors.New("context deadline exceeded")
+	default:
+	}
+	if !c.active() {
+		_, err := c.connect(ctx)
+		if err != nil {
+			c.m.Unlock()
+			return nil, err
+		}
+	}
+	c.m.Unlock()
+
 	if c.udpSM == nil {
 		return nil, coreErrs.DialError{Message: "UDP not enabled"}
 	}
-	return c.udpSM.NewUDP(addr)
-}
-
-func (c *clientImpl) Close() error {
-	_ = c.conn.CloseWithError(closeErrCodeOK, "")
-	_ = c.pktConn.Close()
-	return nil
+	conn, err := c.udpSM.NewUDP(addr)
+	c.handleIfConnectionClosed(err)
+	return conn, err
 }
 
 // wrapIfConnectionClosed checks if the error returned by quic-go
@@ -224,12 +270,17 @@ func (c *clientImpl) Close() error {
 // and if so, wraps the error with coreErrs.ClosedError.
 // PITFALL: sometimes quic-go has "internal errors" that are not net.Error,
 // but we still need to treat them as ClosedError.
-func wrapIfConnectionClosed(err error) error {
-	netErr, ok := err.(net.Error)
-	if !ok || !netErr.Temporary() {
-		return coreErrs.ClosedError{Err: err}
-	} else {
-		return err
+func (c *clientImpl) handleIfConnectionClosed(err error) {
+	if err == nil {
+		return
+	}
+	if _, ok := err.(coreErrs.ClosedError); ok {
+		c.conn.CloseWithError(closeErrCodeProtocolError, "")
+		c.pktConn.Close()
+	}
+	if netErr, ok := err.(net.Error); !ok || !netErr.Temporary() {
+		c.conn.CloseWithError(closeErrCodeProtocolError, "")
+		c.pktConn.Close()
 	}
 }
 
