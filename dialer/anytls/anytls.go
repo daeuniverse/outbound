@@ -41,7 +41,7 @@ func parseAnytlsURL(link string) (*Anytls, error) {
 	if err != nil {
 		return nil, err
 	}
-        sni := u.Query().Get("peer")
+	sni := u.Query().Get("peer")
 	if sni == "" {
 		sni = u.Query().Get("sni")
 	}
