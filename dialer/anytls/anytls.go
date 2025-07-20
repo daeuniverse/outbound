@@ -16,6 +16,7 @@ func init() {
 
 type Anytls struct {
 	link     string
+	Name     string
 	Auth     string
 	Host     string
 	Sni      string
@@ -36,15 +37,23 @@ func NewAnytls(option *dialer.ExtraOption, nextDialer netproxy.Dialer, link stri
 }
 
 func parseAnytlsURL(link string) (*Anytls, error) {
-	u, err := url.ParseRequestURI(link)
+	u, err := url.Parse(link)
 	if err != nil {
 		return nil, err
 	}
+	sni := u.Query().Get("peer")
+	if sni == "" {
+		sni = u.Query().Get("sni")
+	}
+	if sni == "" {
+		sni = u.Hostname()
+	}
 	antls := &Anytls{
 		link:     link,
+		Name:     u.Fragment,
 		Auth:     u.User.Username(),
 		Host:     u.Host,
-		Sni:      u.Query().Get("sni"),
+		Sni:      sni,
 		Insecure: u.Query().Get("insecure") == "1",
 	}
 
@@ -70,7 +79,7 @@ func (s *Anytls) Dialer(option *dialer.ExtraOption, nextDialer netproxy.Dialer) 
 		return nil, nil, err
 	}
 	return d, &dialer.Property{
-		Name:     "anytls",
+		Name:     s.Name,
 		Protocol: "anytls",
 		Address:  s.Host,
 		Link:     s.link,
