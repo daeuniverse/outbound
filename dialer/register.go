@@ -7,10 +7,10 @@ package dialer
 
 import (
 	"fmt"
-	"net/url"
 	"strings"
 
 	"github.com/daeuniverse/outbound/common"
+	"github.com/daeuniverse/outbound/common/url"
 	"github.com/daeuniverse/outbound/netproxy"
 )
 

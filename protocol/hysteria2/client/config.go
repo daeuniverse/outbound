@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"crypto/x509"
 	"net"
 	"time"
@@ -23,6 +24,7 @@ type Config struct {
 	TLSConfig       TLSConfig
 	QUICConfig      QUICConfig
 	BandwidthConfig BandwidthConfig
+	UDPHopInterval  time.Duration
 	FastOpen        bool
 
 	filled bool // whether the fields have been verified and filled
@@ -35,7 +37,7 @@ func (c *Config) verifyAndFill() error {
 		return nil
 	}
 	if c.ConnFactory == nil {
-		c.ConnFactory = &udpConnFactory{}
+		return errors.ConfigError{Field: "ConnFactory", Reason: "must be set"}
 	}
 	if c.ServerAddr == nil {
 		return errors.ConfigError{Field: "ServerAddr", Reason: "must be set"}
@@ -77,13 +79,15 @@ func (c *Config) verifyAndFill() error {
 }
 
 type ConnFactory interface {
-	New(net.Addr) (net.PacketConn, error)
+	New(context.Context) (net.PacketConn, error)
 }
 
-type udpConnFactory struct{}
+type UdpConnFactory struct {
+	NewFunc func(ctx context.Context) (net.PacketConn, error)
+}
 
-func (f *udpConnFactory) New(addr net.Addr) (net.PacketConn, error) {
-	return net.ListenUDP("udp", nil)
+func (f *UdpConnFactory) New(ctx context.Context) (net.PacketConn, error) {
+	return f.NewFunc(ctx)
 }
 
 // TLSConfig contains the TLS configuration fields that we want to expose to the user.
