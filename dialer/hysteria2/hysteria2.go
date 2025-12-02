@@ -28,6 +28,8 @@ type Hysteria2 struct {
 	User      string
 	Password  string
 	Server    string
+	Obfs      string
+	ObfsPass  string
 	Insecure  bool
 	Sni       string
 	PinSHA256 string
@@ -79,6 +81,12 @@ func (s *Hysteria2) Dialer(option *dialer.ExtraOption, nextDialer netproxy.Diale
 				MaxRx: maxRx,
 				MaxTx: maxTx,
 			}
+		}
+	}
+	if s.Obfs != "" {
+		feature1.ObfuscationConfig = client.ObfuscationConfig{
+			Obfuscation:    s.Obfs,
+			ObfuscationKey: []byte(s.ObfsPass),
 		}
 	}
 	header.Feature1 = feature1
@@ -148,6 +156,8 @@ func ParseHysteria2URL(link string) (*Hysteria2, error) {
 		Name:      u.Fragment,
 		User:      u.User.Username(),
 		Server:    u.Host,
+		Obfs:      q.Get("obfs"),
+		ObfsPass:  q.Get("obfs-password"),
 		Insecure:  insecure,
 		Sni:       q.Get("sni"),
 		PinSHA256: q.Get("pinSHA256"),
@@ -169,6 +179,12 @@ func (s *Hysteria2) ExportToURL() string {
 		t.User = url.UserPassword(s.User, s.Password)
 	}
 	q := t.Query()
+	if s.Obfs != "" {
+		q.Set("obfs", s.Obfs)
+	}
+	if s.ObfsPass != "" {
+		q.Set("obfs-password", s.ObfsPass)
+	}
 	if s.Insecure {
 		q.Set("insecure", "1")
 	}

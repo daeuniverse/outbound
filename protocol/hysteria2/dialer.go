@@ -24,8 +24,9 @@ type Dialer struct {
 }
 
 type Feature1 struct {
-	BandwidthConfig client.BandwidthConfig
-	UDPHopInterval  time.Duration
+	BandwidthConfig   client.BandwidthConfig
+	UDPHopInterval    time.Duration
+	ObfuscationConfig client.ObfuscationConfig
 }
 
 func NewDialer(nextDialer netproxy.Dialer, header protocol.Header) (netproxy.Dialer, error) {
@@ -54,6 +55,7 @@ func NewDialer(nextDialer netproxy.Dialer, header protocol.Header) (netproxy.Dia
 	if feature := header.Feature1; feature != nil {
 		config.BandwidthConfig = feature.(*Feature1).BandwidthConfig
 		config.UDPHopInterval = feature.(*Feature1).UDPHopInterval
+		config.ObfuscationConfig = feature.(*Feature1).ObfuscationConfig
 	}
 
 	var err error
