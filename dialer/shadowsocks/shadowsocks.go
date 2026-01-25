@@ -13,6 +13,7 @@ import (
 	"github.com/daeuniverse/outbound/netproxy"
 	"github.com/daeuniverse/outbound/protocol"
 	"github.com/daeuniverse/outbound/protocol/shadowsocks"
+	_ "github.com/daeuniverse/outbound/protocol/shadowsocks2022" // Register SS2022 protocol
 	"github.com/daeuniverse/outbound/transport/mux"
 	"github.com/daeuniverse/outbound/transport/simpleobfs"
 	"github.com/daeuniverse/outbound/transport/tls"
@@ -117,8 +118,13 @@ func (s *Shadowsocks) Dialer(option *dialer.ExtraOption, nextDialer netproxy.Dia
 	}
 	var nextDialerName string
 	switch s.Cipher {
+	// Shadowsocks 2022 ciphers
+	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm", "2022-blake3-chacha20-poly1305":
+		nextDialerName = "shadowsocks2022"
+	// Legacy AEAD ciphers
 	case "aes-256-gcm", "aes-128-gcm", "chacha20-poly1305", "chacha20-ietf-poly1305":
 		nextDialerName = "shadowsocks"
+	// Legacy stream ciphers
 	case "aes-128-cfb", "aes-192-cfb", "aes-256-cfb", "aes-128-ctr", "aes-192-ctr", "aes-256-ctr", "aes-128-ofb", "aes-192-ofb", "aes-256-ofb", "des-cfb", "bf-cfb", "cast5-cfb", "rc4-md5", "rc4-md5-6", "chacha20", "chacha20-ietf", "salsa20", "camellia-128-cfb", "camellia-192-cfb", "camellia-256-cfb", "idea-cfb", "rc2-cfb", "seed-cfb", "rc4", "none", "plain":
 		nextDialerName = "shadowsocks_stream"
 	default:
