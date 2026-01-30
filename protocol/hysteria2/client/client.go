@@ -67,7 +67,7 @@ func (c *clientImpl) connect(ctx context.Context) (*HandshakeInfo, error) {
 	switch c.config.ObfuscationConfig.Obfuscation {
 	case "salamander":
 		pktConn = NewSalamanderPacketConn(pktConn, c.config.ObfuscationConfig.ObfuscationKey)
-	case "":
+	case "", "plain":
 	default:
 		return nil, errors.New("unknown obfuscation: " + c.config.ObfuscationConfig.Obfuscation)
 	}
