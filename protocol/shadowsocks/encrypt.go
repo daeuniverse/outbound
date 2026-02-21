@@ -4,11 +4,32 @@ import (
 	"crypto/sha1"
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/daeuniverse/outbound/ciphers"
 	"github.com/daeuniverse/outbound/pool"
 	"golang.org/x/crypto/hkdf"
 )
+
+// subKeyPool reuses subKey buffers to reduce allocations in the hot path.
+// Shadowsocks AEAD uses either 16-byte (AES-128) or 32-byte (AES-256) keys.
+var subKeyPool = sync.Pool{
+	New: func() interface{} {
+		return make([]byte, 32) // max key size
+	},
+}
+
+// getSubKey gets a subKey buffer from the pool.
+func getSubKey(keyLen int) []byte {
+	return subKeyPool.Get().([]byte)[:keyLen]
+}
+
+// putSubKey returns a subKey buffer to the pool.
+func putSubKey(subKey []byte) {
+	if subKey != nil && cap(subKey) >= 16 && cap(subKey) <= 32 {
+		subKeyPool.Put(subKey[:32])
+	}
+}
 
 // EncryptUDPFromPool returns shadowBytes from pool.
 // the shadowBytes MUST be put back.
@@ -20,8 +41,8 @@ func EncryptUDPFromPool(key *Key, b []byte, salt []byte, reusedInfo []byte) (sha
 		}
 	}()
 	copy(buf, salt)
-	subKey := pool.Get(key.CipherConf.KeyLen)
-	defer pool.Put(subKey)
+	subKey := getSubKey(key.CipherConf.KeyLen)
+	defer putSubKey(subKey)
 	kdf := hkdf.New(
 		sha1.New,
 		key.MasterKey,
@@ -56,8 +77,8 @@ func DecryptUDP(writeTo []byte, key *Key, shadowBytes []byte, reusedInfo []byte)
 	if len(shadowBytes) < key.CipherConf.SaltLen {
 		return 0, fmt.Errorf("short length to decrypt")
 	}
-	subKey := pool.Get(key.CipherConf.KeyLen)
-	defer pool.Put(subKey)
+	subKey := getSubKey(key.CipherConf.KeyLen)
+	defer putSubKey(subKey)
 	kdf := hkdf.New(
 		sha1.New,
 		key.MasterKey,

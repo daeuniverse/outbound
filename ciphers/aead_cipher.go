@@ -33,9 +33,8 @@ var (
 		"aes-256-gcm":            {KeyLen: 32, SaltLen: 32, NonceLen: 12, TagLen: 16, NewCipher: NewGcm},
 		"aes-128-gcm":            {KeyLen: 16, SaltLen: 16, NonceLen: 12, TagLen: 16, NewCipher: NewGcm},
 	}
-	ZeroNonce             [MaxNonceSize]byte
-	ShadowsocksReusedInfo = []byte("ss-subkey")
-	JuicityReusedInfo     = []byte("juicity-reused-info")
+	ZeroNonce         [MaxNonceSize]byte
+	JuicityReusedInfo = []byte("juicity-reused-info")
 )
 
 func NewGcm(key []byte) (cipher.AEAD, error) {
@@ -46,7 +45,9 @@ func NewGcm(key []byte) (cipher.AEAD, error) {
 	return cipher.NewGCM(block)
 }
 
+// Verify is used for legacy compatibility
 func (conf *CipherConf) Verify(buf []byte, masterKey []byte, salt []byte, cipherText []byte, subKey *[]byte) ([]byte, bool) {
+	var shadowsocksReusedInfo = []byte("ss-subkey")
 	var sk []byte
 	if subKey != nil && len(*subKey) == conf.KeyLen {
 		sk = *subKey
@@ -57,7 +58,7 @@ func (conf *CipherConf) Verify(buf []byte, masterKey []byte, salt []byte, cipher
 			sha1.New,
 			masterKey,
 			salt,
-			ShadowsocksReusedInfo,
+			shadowsocksReusedInfo,
 		)
 		io.ReadFull(kdf, sk)
 		if subKey != nil && cap(*subKey) >= conf.KeyLen {
