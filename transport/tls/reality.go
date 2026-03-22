@@ -213,7 +213,12 @@ func (x *Reality) DialContext(ctx context.Context, network, addr string) (c netp
 			// if config.Show {
 			// logrus.Printf("REALITY hello.SessionId[:16]: %v\n", hello.SessionId[:16])
 			// }
-			if uConn.HandshakeState.State13.EcdheKey == nil {
+			// Use KeyShareKeys.Ecdhe (new API) with fallback to EcdheKey (deprecated) for compatibility
+			ecdheKey := uConn.HandshakeState.State13.KeyShareKeys.Ecdhe
+			if ecdheKey == nil {
+				ecdheKey = uConn.HandshakeState.State13.EcdheKey
+			}
+			if ecdheKey == nil {
 				// logrus.Println("wtf", retry, addr)
 				if retry > 2 {
 					return nil, errors.New("nil ecdheKey")
@@ -222,7 +227,7 @@ func (x *Reality) DialContext(ctx context.Context, network, addr string) (c netp
 				goto retryHandshake // retry
 			}
 			// logrus.Println("OH YEAH", retry)
-			uConn.AuthKey, _ = uConn.HandshakeState.State13.EcdheKey.ECDH(x.publicKey)
+			uConn.AuthKey, _ = ecdheKey.ECDH(x.publicKey)
 			if uConn.AuthKey == nil {
 				return nil, errors.New("REALITY: SharedKey == nil")
 			}

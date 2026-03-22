@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/bits"
-	"unicode"
 
 	"github.com/daeuniverse/outbound/common"
 )
@@ -40,7 +39,7 @@ func ParseMagicNetwork(network string) (mn *MagicNetwork, err error) {
 	if len(network) == 0 {
 		return &MagicNetwork{}, nil
 	}
-	if unicode.IsPrint([]rune(network)[0]) {
+	if network[0] != MagicNetworkType {
 		return &MagicNetwork{
 			Network: network,
 			Mark:    0,

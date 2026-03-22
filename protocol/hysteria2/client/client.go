@@ -12,12 +12,13 @@ import (
 
 	"github.com/daeuniverse/outbound/netproxy"
 	coreErrs "github.com/daeuniverse/outbound/protocol/hysteria2/errors"
+	outbounderrors "github.com/daeuniverse/outbound/common/errors"
 	"github.com/daeuniverse/outbound/protocol/hysteria2/internal/protocol"
 	"github.com/daeuniverse/outbound/protocol/hysteria2/internal/utils"
 	"github.com/daeuniverse/outbound/protocol/tuic/congestion"
 
-	"github.com/daeuniverse/quic-go"
-	"github.com/daeuniverse/quic-go/http3"
+	"github.com/olicesx/quic-go"
+	"github.com/olicesx/quic-go/http3"
 )
 
 const (
@@ -45,7 +46,7 @@ func NewClient(config *Config) (Client, error) {
 	return c, nil
 }
 
-// TODO: 同一个 dialer 不同 mark 如何处理 quic conn?
+// TODO: How to handle quic conn for the same dialer with different marks?
 
 type clientImpl struct {
 	config *Config
@@ -353,8 +354,10 @@ func (io *udpIOImpl) ReceiveMessage() (*protocol.UDPMessage, error) {
 	for {
 		msg, err := io.Conn.ReceiveDatagram(context.Background())
 		if err != nil {
-			// Connection error, this will stop the session manager
-			return nil, err
+			if !outbounderrors.IsTemporaryError(err) {
+				return nil, err
+			}
+			continue
 		}
 		udpMsg, err := protocol.ParseUDPMessage(msg)
 		if err != nil {
@@ -364,6 +367,7 @@ func (io *udpIOImpl) ReceiveMessage() (*protocol.UDPMessage, error) {
 		return udpMsg, nil
 	}
 }
+
 
 func (io *udpIOImpl) SendMessage(buf []byte, msg *protocol.UDPMessage) error {
 	msgN := msg.Serialize(buf)

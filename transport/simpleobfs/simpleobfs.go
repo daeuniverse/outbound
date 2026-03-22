@@ -27,7 +27,6 @@ type SimpleObfs struct {
 	host     string
 }
 
-// NewSimpleobfs returns a simpleobfs proxy.
 func NewSimpleObfs(option *dialer.ExtraOption, nextDialer netproxy.Dialer, link string) (netproxy.Dialer, *dialer.Property, error) {
 	u, err := url.Parse(link)
 	if err != nil {

@@ -13,6 +13,10 @@ func GetBuffer() *bytes.Buffer {
 }
 
 func PutBuffer(buf *bytes.Buffer) {
+	// Prevent slice drift leak for ridiculously large buffers
+	if buf.Cap() > 32*1024 {
+		return
+	}
 	buf.Reset()
 	bufferPool.Put(buf)
 }

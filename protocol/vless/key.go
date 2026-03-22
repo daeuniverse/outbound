@@ -15,7 +15,7 @@ func Password2Key(password string) (id []byte, err error) {
 	}
 	password = strings.ReplaceAll(password, "-", "")
 	if len(password) != 32 {
-		return nil, fmt.Errorf("invalid UUID: " + password)
+		return nil, fmt.Errorf("invalid UUID: %s", password)
 	}
 	id = make([]byte, 16)
 	if _, err := hex.Decode(id[:], []byte(password)); err != nil {

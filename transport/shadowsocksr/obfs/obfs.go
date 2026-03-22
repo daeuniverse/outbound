@@ -7,7 +7,7 @@ import (
 type Creator func() IObfs
 
 type constructor struct {
-	New Creator
+	New      Creator
 	Overhead int
 }
 

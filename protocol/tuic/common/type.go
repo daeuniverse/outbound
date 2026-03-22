@@ -2,18 +2,18 @@ package common
 
 import (
 	"context"
-	"errors"
 	"net"
 
+	outbounderrors "github.com/daeuniverse/outbound/common/errors"
 	"github.com/daeuniverse/outbound/netproxy"
 	"github.com/daeuniverse/outbound/protocol"
-	"github.com/daeuniverse/quic-go"
+	"github.com/olicesx/quic-go"
 )
 
 var (
-	ErrClientClosed       = errors.New("client closed")
-	ErrTooManyOpenStreams = errors.New("too many open streams")
-	ErrHoldOn             = errors.New("hold on")
+	ErrClientClosed       = outbounderrors.ErrClientClosed
+	ErrTooManyOpenStreams = outbounderrors.ErrStreamExhausted
+	ErrHoldOn             = outbounderrors.ErrOperationHold
 )
 
 type DialFunc func(ctx context.Context, dialer netproxy.Dialer) (transport *quic.Transport, addr net.Addr, err error)
@@ -31,3 +31,8 @@ const (
 	QUIC UdpRelayMode = iota
 	NATIVE
 )
+
+// IsTemporaryError checks if an error is temporary and should not close the connection
+func IsTemporaryError(err error) bool {
+	return outbounderrors.IsTemporaryError(err)
+}

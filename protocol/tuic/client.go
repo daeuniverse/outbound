@@ -7,16 +7,16 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
-	"strings"
 	"sync"
 	"time"
 
+	outbounderrors "github.com/daeuniverse/outbound/common/errors"
 	"github.com/daeuniverse/outbound/netproxy"
 	"github.com/daeuniverse/outbound/pkg/fastrand"
 	"github.com/daeuniverse/outbound/pool"
 	"github.com/daeuniverse/outbound/protocol"
 	"github.com/daeuniverse/outbound/protocol/tuic/common"
-	"github.com/daeuniverse/quic-go"
+	"github.com/olicesx/quic-go"
 )
 
 const Ver5 = 0x5
@@ -171,11 +171,13 @@ func (t *clientImpl) handleMessage(quicConn quic.Connection) (err error) {
 		t.deferQuicConn(quicConn, err)
 	}()
 	for {
-		// TODO:
-		ctx, cancel := context.WithTimeout(context.TODO(), 3*time.Minute)
-		message, err := quicConn.ReceiveDatagram(ctx)
-		cancel()
+		// Use context.Background() instead of fixed timeout
+		// QUIC's keepalive mechanism will handle connection health
+		message, err := quicConn.ReceiveDatagram(context.Background())
 		if err != nil {
+		if outbounderrors.IsTemporaryError(err) {
+				continue
+			}
 			return err
 		}
 		go func(message []byte) (err error) {
@@ -219,7 +221,10 @@ func (t *clientImpl) handleMessage(quicConn quic.Connection) (err error) {
 }
 
 func (t *clientImpl) deferQuicConn(quicConn quic.Connection, err error) {
-	if err != nil && !strings.Contains(err.Error(), common.ErrTooManyOpenStreams.Error()) {
+	// Only close connection on non-temporary errors
+	if err != nil &&
+		!outbounderrors.IsTemporaryError(err) &&
+		err != outbounderrors.ErrStreamExhausted {
 		t.forceClose(quicConn, err)
 	}
 }

@@ -35,7 +35,8 @@ type Conn struct {
 	muFinishShakeFuncs  sync.Mutex
 	finishShakeFuncs    []func(conn netproxy.Conn)
 
-	isH2 bool
+	isH2      bool
+	closeOnce sync.Once
 }
 
 func (c *Conn) SetDeadline(t time.Time) error {
@@ -301,8 +302,15 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 }
 
 func (c *Conn) Close() error {
-	// Do not close underlay conn because it has been managed by background go routine.
-	return nil
+	var err error
+	c.closeOnce.Do(func() {
+		// HTTP/2 connections are managed by the connection pool, don't close them.
+		// HTTP/1.1 connections should be closed to prevent resource leaks.
+		if !c.isH2 && c.conn != nil {
+			err = c.conn.Close()
+		}
+	})
+	return err
 }
 
 func newHTTP2Conn(c net.Conn, pipedReqBody *io.PipeWriter, respBody io.ReadCloser) *http2Conn {
@@ -459,7 +467,7 @@ func (p *h2ConnsPool) GetClientConn(req *http.Request, addr string) (*http2.Clie
 	if !ok {
 		return nil, fmt.Errorf("no valid dialer for h2ConnsPool.GetClientConn")
 	}
-	somark, _ := p.addr2Dialer.Load(addr)
+	somark, _ := p.addr2Somark.Load(addr)
 	_, h2Conn, err := p.GetConn(d.(netproxy.Dialer), addr, somark.(string))
 	return h2Conn, err
 }

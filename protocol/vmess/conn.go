@@ -1,7 +1,6 @@
 package vmess
 
 import (
-	"bytes"
 	"crypto/cipher"
 	"crypto/sha256"
 	"encoding/binary"
@@ -13,14 +12,19 @@ import (
 	"sync"
 
 	"github.com/daeuniverse/outbound/common"
+	"github.com/daeuniverse/outbound/common/iout"
 	"github.com/daeuniverse/outbound/netproxy"
 	"github.com/daeuniverse/outbound/pkg/fastrand"
 	"github.com/daeuniverse/outbound/pool"
 )
 
+var resolveUDPAddr = net.ResolveUDPAddr
+
 const (
 	MaxChunkSize = 1 << 14
 	MaxUDPSize   = 1 << 11
+
+	maxReusableSealFrameSize = 128 << 10
 )
 
 type Conn struct {
@@ -31,6 +35,7 @@ type Conn struct {
 	cmdKey          []byte
 	dialTgt         string
 	dialTgtAddrPort netip.AddrPort // lazy resolve
+	dialTgtMu       sync.Mutex
 
 	NewAEAD func(key []byte) (cipher.AEAD, error)
 
@@ -56,6 +61,8 @@ type Conn struct {
 	readMutex   sync.Mutex
 	leftToRead  []byte
 	indexToRead int
+
+	writeSealFrame []byte
 }
 
 func NewConn(conn netproxy.Conn, metadata Metadata, dialTgt string, cmdKey []byte) (c *Conn, err error) {
@@ -77,7 +84,34 @@ func NewConn(conn netproxy.Conn, metadata Metadata, dialTgt string, cmdKey []byt
 }
 
 func (c *Conn) Close() error {
+	c.readMutex.Lock()
+	if c.leftToRead != nil {
+		pool.Put(c.leftToRead)
+		c.leftToRead = nil
+		c.indexToRead = 0
+	}
+	c.readMutex.Unlock()
+
+	c.writeMutex.Lock()
+	c.writeSealFrame = nil
+	c.writeMutex.Unlock()
 	return c.Conn.Close()
+}
+
+func (c *Conn) dialTargetAddrPort() (netip.AddrPort, error) {
+	c.dialTgtMu.Lock()
+	defer c.dialTgtMu.Unlock()
+
+	if c.dialTgtAddrPort.IsValid() {
+		return c.dialTgtAddrPort, nil
+	}
+
+	tgt, err := resolveUDPAddr("udp", c.dialTgt)
+	if err != nil {
+		return netip.AddrPort{}, err
+	}
+	c.dialTgtAddrPort = tgt.AddrPort()
+	return c.dialTgtAddrPort, nil
 }
 
 func (c *Conn) chunks(size int) (payloadSize int, numChunks int) {
@@ -104,8 +138,16 @@ func (c *Conn) sealFromPool(b []byte) (data []byte) {
 	sizeSize := c.writeChunkSizeParser.SizeBytes()
 	encryptedSize := int32(len(b) + c.writeBodyCipher.Overhead())
 	paddingSize := int32(c.writePaddingGenerator.NextPaddingLen())
+	totalSize := int(sizeSize + encryptedSize + paddingSize)
 
-	data = pool.Get(int(sizeSize + encryptedSize + paddingSize))
+	if totalSize <= maxReusableSealFrameSize {
+		if cap(c.writeSealFrame) < totalSize {
+			c.writeSealFrame = make([]byte, totalSize)
+		}
+		data = c.writeSealFrame[:totalSize]
+	} else {
+		data = make([]byte, totalSize)
+	}
 	c.writeChunkSizeParser.Encode(uint16(encryptedSize+paddingSize), data)
 
 	c.writeBodyCipher.Seal(data[sizeSize:sizeSize], c.writeNonceGenerator(), b, nil)
@@ -114,17 +156,13 @@ func (c *Conn) sealFromPool(b []byte) (data []byte) {
 	return data
 }
 
-// writeStream splits mb into multiple FIXED size (payloadSize) chunks.
-// Then seal the chunks and write separately.
-// If the sum size of mb less than one payloadSize, seal and write it directly.
 func (c *Conn) writeStream(b []byte, preWrite []byte) (n int, err error) {
 	payloadSize, numChunks := c.chunks(len(b))
 	var start = 0
 	if preWrite != nil {
 		start++
 		data := c.sealFromPool(b[n:common.Min(n+payloadSize, len(b))])
-		defer pool.Put(data)
-		if _, err = c.Conn.Write(bytes.Join([][]byte{preWrite, data}, nil)); err != nil {
+		if _, err = iout.MultiWrite(c.Conn, preWrite, data); err != nil {
 			return 0, err
 		}
 		n += payloadSize
@@ -134,7 +172,6 @@ func (c *Conn) writeStream(b []byte, preWrite []byte) (n int, err error) {
 		if _, err = c.Conn.Write(data); err != nil {
 			return n, err
 		}
-		pool.Put(data)
 		n += payloadSize
 	}
 	if n > len(b) {
@@ -143,12 +180,10 @@ func (c *Conn) writeStream(b []byte, preWrite []byte) (n int, err error) {
 	return n, nil
 }
 
-// writePacket simply seal every buffer of mb and write.
 func (c *Conn) writePacket(b []byte, preWrite []byte) (n int, err error) {
 	data := c.sealFromPool(b)
-	defer pool.Put(data)
 	if preWrite != nil {
-		if _, err = c.Conn.Write(bytes.Join([][]byte{preWrite, data}, nil)); err != nil {
+		if _, err = iout.MultiWrite(c.Conn, preWrite, data); err != nil {
 			return 0, err
 		}
 	} else {
@@ -220,14 +255,11 @@ func (c *Conn) WriteReqHeader() (err error) {
 
 func (c *Conn) Write(b []byte) (n int, err error) {
 	if c.metadata.IsPacketAddr() {
-		if !c.dialTgtAddrPort.IsValid() {
-			tgt, err := net.ResolveUDPAddr("udp", c.dialTgt)
-			if err != nil {
-				return 0, err
-			}
-			c.dialTgtAddrPort = tgt.AddrPort()
+		tgt, err := c.dialTargetAddrPort()
+		if err != nil {
+			return 0, err
 		}
-		return c.WriteTo(b, c.dialTgtAddrPort.String())
+		return c.WriteTo(b, tgt.String())
 	} else {
 		return c.write(b)
 	}
@@ -272,7 +304,6 @@ func (c *Conn) write(b []byte) (n int, err error) {
 	}
 	if len(b) == 0 {
 		data := c.sealFromPool(nil)
-		defer pool.Put(data)
 		_, err = c.Conn.Write(data)
 		return 0, err
 	}
@@ -432,6 +463,8 @@ func (c *Conn) read(b []byte) (n int, err error) {
 		if c.indexToRead >= len(c.leftToRead) {
 			// put the buf back
 			pool.Put(c.leftToRead)
+			c.leftToRead = nil
+			c.indexToRead = 0
 		}
 		return n, nil
 	}
@@ -449,6 +482,8 @@ func (c *Conn) read(b []byte) (n int, err error) {
 	} else {
 		// full reading. put the buf back
 		pool.Put(chunk)
+		c.leftToRead = nil
+		c.indexToRead = 0
 	}
 	return n, nil
 }

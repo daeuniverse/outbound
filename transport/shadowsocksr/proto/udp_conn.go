@@ -5,6 +5,7 @@ import (
 	"net/netip"
 
 	"github.com/daeuniverse/outbound/ciphers"
+	"sync"
 	"github.com/daeuniverse/outbound/netproxy"
 	"github.com/daeuniverse/outbound/pool"
 	"github.com/daeuniverse/outbound/pool/bytes"
@@ -16,6 +17,7 @@ type PacketConn struct {
 	netproxy.PacketConn
 	Protocol IProtocol
 	tgt      string
+	writeMu sync.Mutex
 }
 
 func NewPacketConn(c netproxy.PacketConn, proto IProtocol, tgt string) (*PacketConn, error) {
@@ -77,7 +79,15 @@ func (c *PacketConn) WriteTo(b []byte, to string) (n int, err error) {
 	if err != nil {
 		return 0, err
 	}
+	
+	// Lock to protect concurrent writes.
+	// Critical section is minimized to only protect the shared buffer and write operation.
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	
 	pb := pool.GetMustBigger(len(addr) + len(b))
+	defer pool.Put(pb)
+	
 	copy(pb, addr)
 	copy(pb[len(addr):], b)
 	buf := bytes.NewBuffer(pb)
@@ -88,5 +98,5 @@ func (c *PacketConn) WriteTo(b []byte, to string) (n int, err error) {
 		return 0, err
 	}
 
-	return len(b), err
+	return len(b), nil
 }

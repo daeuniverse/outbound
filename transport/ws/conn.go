@@ -1,14 +1,20 @@
 package ws
 
 import (
-	"bytes"
+	"io"
+	"sync"
+
 	"github.com/gorilla/websocket"
 	"time"
 )
 
 type conn struct {
 	*websocket.Conn
-	readBuffer bytes.Buffer
+
+	readMu        sync.Mutex
+	currentReader io.Reader
+
+	writeMu sync.Mutex
 }
 
 func newConn(wsc *websocket.Conn) *conn {
@@ -18,22 +24,53 @@ func newConn(wsc *websocket.Conn) *conn {
 }
 
 func (c *conn) Read(b []byte) (n int, err error) {
-	if c.readBuffer.Len() > 0 {
-		return c.readBuffer.Read(b)
+	c.readMu.Lock()
+	defer c.readMu.Unlock()
+
+	for {
+		if c.currentReader == nil {
+			messageType, reader, err := c.Conn.NextReader()
+			if err != nil {
+				return 0, err
+			}
+			if messageType != websocket.BinaryMessage {
+				_, _ = io.Copy(io.Discard, reader)
+				continue
+			}
+			c.currentReader = reader
+		}
+
+		n, err = c.currentReader.Read(b)
+		if err == nil {
+			return n, nil
+		}
+		if err == io.EOF {
+			c.currentReader = nil
+			if n > 0 {
+				return n, nil
+			}
+			continue
+		}
+		return n, err
 	}
-	_, msg, err := c.Conn.ReadMessage()
+}
+func (c *conn) Write(b []byte) (n int, err error) {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+
+	writer, err := c.Conn.NextWriter(websocket.BinaryMessage)
 	if err != nil {
 		return 0, err
 	}
-	n = copy(b, msg)
-	if n < len(msg) {
-		c.readBuffer.Write(msg[n:])
+	n, err = writer.Write(b)
+	closeErr := writer.Close()
+	if err != nil {
+		return n, err
+	}
+	if closeErr != nil {
+		return n, closeErr
 	}
 	return n, nil
-
-}
-func (c *conn) Write(b []byte) (n int, err error) {
-	return len(b), c.Conn.WriteMessage(websocket.BinaryMessage, b)
 }
 
 func (c *conn) SetDeadline(t time.Time) error {

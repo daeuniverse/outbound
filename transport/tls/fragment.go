@@ -34,6 +34,8 @@ type FragmentConn struct {
 	minInterval int64
 }
 
+const fragmentStackRecordScratch = 5 + 1024
+
 func NewFragmentConn(rawConn netproxy.Conn, minLength, maxLength, minInterval, maxInterval int64) *FragmentConn {
 	return &FragmentConn{
 		rawConn:     rawConn,
@@ -56,32 +58,44 @@ func (f *FragmentConn) Write(b []byte) (n int, err error) {
 	if len(b) < recordLen {
 		return f.rawConn.Write(b)
 	}
+	minChunkLen, maxChunkLen := normalizeFragmentBounds(f.minLength, f.maxLength)
 	data := b[5:recordLen]
-	buf := make([]byte, 1024)
-	var hello []byte
-	for from := 0; ; {
-		to := common.Min(len(data), from+int(randBetween(f.minLength, f.maxLength)))
-		copy(buf[:3], b)
-		copy(buf[5:], data[from:to])
-		l := to - from
-		from = to
-		buf[3] = byte(l >> 8)
-		buf[4] = byte(l)
-		if f.maxInterval == 0 {
-			hello = append(hello, buf[:5+l]...)
-		} else {
-			if _, err := f.rawConn.Write(buf[:5+l]); err != nil {
+	var stackScratch [fragmentStackRecordScratch]byte
+	recordScratch := stackScratch[:]
+	if 5+maxChunkLen > len(recordScratch) {
+		recordScratch = make([]byte, 5+maxChunkLen)
+	}
+
+	if f.maxInterval == 0 {
+		hello := make([]byte, 0, fragmentAggregateCap(len(data), minChunkLen))
+		for from := 0; from < len(data); {
+			to := common.Min(len(data), from+int(randBetween(int64(minChunkLen), int64(maxChunkLen))))
+			chunkLen := to - from
+			start := len(hello)
+			hello = hello[:start+5+chunkLen]
+			copy(hello[start:start+3], b[:3])
+			hello[start+3] = byte(chunkLen >> 8)
+			hello[start+4] = byte(chunkLen)
+			copy(hello[start+5:start+5+chunkLen], data[from:to])
+			from = to
+		}
+		if _, err := f.rawConn.Write(hello); err != nil {
+			return 0, err
+		}
+	} else {
+		frame := recordScratch
+		for from := 0; from < len(data); {
+			to := common.Min(len(data), from+int(randBetween(int64(minChunkLen), int64(maxChunkLen))))
+			chunkLen := to - from
+			copy(frame[:3], b[:3])
+			frame[3] = byte(chunkLen >> 8)
+			frame[4] = byte(chunkLen)
+			copy(frame[5:5+chunkLen], data[from:to])
+			if _, err := f.rawConn.Write(frame[:5+chunkLen]); err != nil {
 				return 0, err
 			}
 			time.Sleep(time.Duration(randBetween(f.minInterval, f.maxInterval)) * time.Millisecond)
-		}
-		if from == len(data) {
-			break
-		}
-	}
-	if len(hello) > 0 {
-		if _, err := f.rawConn.Write(hello); err != nil {
-			return 0, err
+			from = to
 		}
 	}
 	if len(b) > recordLen {
@@ -90,6 +104,29 @@ func (f *FragmentConn) Write(b []byte) (n int, err error) {
 		}
 	}
 	return len(b), nil
+}
+
+func normalizeFragmentBounds(minLength, maxLength int64) (minChunkLen, maxChunkLen int) {
+	minChunkLen = int(minLength)
+	maxChunkLen = int(maxLength)
+	if minChunkLen <= 0 {
+		minChunkLen = 1
+	}
+	if maxChunkLen < minChunkLen {
+		maxChunkLen = minChunkLen
+	}
+	return minChunkLen, maxChunkLen
+}
+
+func fragmentAggregateCap(dataLen, minChunkLen int) int {
+	chunks := dataLen / minChunkLen
+	if dataLen%minChunkLen != 0 {
+		chunks++
+	}
+	if chunks == 0 {
+		chunks = 1
+	}
+	return dataLen + chunks*5
 }
 
 func (f *FragmentConn) Close() error {

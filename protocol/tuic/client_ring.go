@@ -3,8 +3,6 @@ package tuic
 import (
 	"container/list"
 	"context"
-	"errors"
-	"strings"
 	"sync"
 
 	"github.com/daeuniverse/outbound/netproxy"
@@ -90,10 +88,10 @@ func (r *clientRing) _tryNext(current **list.Element, f func(cli *clientRingNode
 			*current = r.ring.Front()
 		}
 	}
-
 	if *current == r.current {
-		// Clients are exhausted.
-		if strings.Contains(err.Error(), common.ErrTooManyOpenStreams.Error()) || errors.Is(err, common.ErrClientClosed) || errors.Is(err, common.ErrHoldOn) {
+		if err == common.ErrTooManyOpenStreams ||
+			err == common.ErrClientClosed ||
+			err == common.ErrHoldOn {
 			goto getNew
 		}
 		// Not the expected error.

@@ -5,20 +5,53 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
-	"strings"
+	"sync"
 	"syscall"
 
+	outbounderrors "github.com/daeuniverse/outbound/common/errors"
 	"github.com/daeuniverse/outbound/netproxy"
 )
 
 var (
-	SymmetricDirect netproxy.Dialer
-	FullconeDirect  netproxy.Dialer
+	SymmetricDirect  netproxy.Dialer = &lazyDirectDialer{fullcone: false}
+	FullconeDirect   netproxy.Dialer = &lazyDirectDialer{fullcone: true}
+	directOnce       sync.Once
+	_symmetricDirect netproxy.Dialer
+	_fullconeDirect  netproxy.Dialer
 )
 
+// lazyDirectDialer provides lazy initialization for direct dialers.
+// It ensures InitDirectDialers is called before any dial operation.
+type lazyDirectDialer struct {
+	fullcone bool
+}
+
+func (d *lazyDirectDialer) ensureInit() {
+	directOnce.Do(func() {
+		_symmetricDirect = NewDirectDialerLaddr(netip.Addr{}, Option{FullCone: false})
+		_fullconeDirect = NewDirectDialerLaddr(netip.Addr{}, Option{FullCone: true})
+	})
+}
+
+func (d *lazyDirectDialer) getDialer() netproxy.Dialer {
+	d.ensureInit()
+	if d.fullcone {
+		return _fullconeDirect
+	}
+	return _symmetricDirect
+}
+
+// InitDirectDialers initializes the global direct dialers with optional fallback DNS.
+// If not called, dialers will be lazily initialized without fallback DNS on first use.
 func InitDirectDialers(fallbackDNS string) {
-	SymmetricDirect = NewDirectDialerLaddr(netip.Addr{}, Option{FullCone: false, FallbackDNS: fallbackDNS})
-	FullconeDirect = NewDirectDialerLaddr(netip.Addr{}, Option{FullCone: true, FallbackDNS: fallbackDNS})
+	directOnce.Do(func() {
+		_symmetricDirect = NewDirectDialerLaddr(netip.Addr{}, Option{FullCone: false, FallbackDNS: fallbackDNS})
+		_fullconeDirect = NewDirectDialerLaddr(netip.Addr{}, Option{FullCone: true, FallbackDNS: fallbackDNS})
+	})
+}
+
+func (d *lazyDirectDialer) DialContext(ctx context.Context, network, addr string) (netproxy.Conn, error) {
+	return d.getDialer().DialContext(ctx, network, addr)
 }
 
 type Option struct {
@@ -63,7 +96,7 @@ func (d *directDialer) tryRetry(err error, addr string, callback func()) {
 
 	// addr is domain
 	if err != nil {
-		if strings.Contains(err.Error(), "i/o timeout") && strings.Contains(err.Error(), "lookup") {
+		if err == outbounderrors.ErrDNSTimeout {
 			callback()
 		}
 	}
@@ -72,23 +105,21 @@ func (d *directDialer) tryRetry(err error, addr string, callback func()) {
 func (d *directDialer) createResolver(mark int, fallback bool) *net.Resolver {
 	if mark == 0 && !fallback {
 		return nil
-	} else {
-		return &net.Resolver{
-			PreferGo: true,
-			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-				dialer := net.Dialer{}
-				if mark != 0 {
-					dialer.Control = func(network, address string, c syscall.RawConn) error {
-						return netproxy.SoMarkControl(c, mark)
-					}
+	}
+	return &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			dialer := net.Dialer{}
+			if mark != 0 {
+				dialer.Control = func(network, address string, c syscall.RawConn) error {
+					return netproxy.SoMarkControl(c, mark)
 				}
-				if fallback {
-					return dialer.DialContext(ctx, network, d.Option.FallbackDNS)
-				} else {
-					return dialer.DialContext(ctx, network, address)
-				}
-			},
-		}
+			}
+			if fallback {
+				return dialer.DialContext(ctx, network, d.Option.FallbackDNS)
+			}
+			return dialer.DialContext(ctx, network, address)
+		},
 	}
 }
 
@@ -100,23 +131,24 @@ func (d *directDialer) dialUdp(ctx context.Context, addr string, mark int, fallb
 			})
 		}()
 	}
+	resolver := d.createResolver(mark, fallback)
 	if mark == 0 {
 		if d.Option.FullCone {
 			conn, err := net.ListenUDP("udp", d.udpLocalAddr)
 			if err != nil {
 				return nil, err
 			}
-			return &directPacketConn{UDPConn: conn, FullCone: true, dialTgt: addr, resolver: d.createResolver(mark, fallback)}, nil
+			return &directPacketConn{UDPConn: conn, FullCone: true, dialTgt: addr, resolver: resolver}, nil
 		} else {
 			dialer := net.Dialer{
 				LocalAddr: d.udpLocalAddr,
-				Resolver:  d.createResolver(mark, fallback),
+				Resolver:  resolver,
 			}
 			conn, err := dialer.DialContext(ctx, "udp", addr)
 			if err != nil {
 				return nil, err
 			}
-			return &directPacketConn{UDPConn: conn.(*net.UDPConn), FullCone: false, dialTgt: addr, resolver: d.createResolver(mark, fallback)}, nil
+			return &directPacketConn{UDPConn: conn.(*net.UDPConn), FullCone: false, dialTgt: addr, resolver: resolver}, nil
 		}
 
 	} else {
@@ -154,13 +186,13 @@ func (d *directDialer) dialUdp(ctx context.Context, addr string, mark int, fallb
 		return &directPacketConn{UDPConn: conn, FullCone: d.Option.FullCone, dialTgt: addr, resolver: &net.Resolver{
 			PreferGo: true,
 			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-				d := net.Dialer{
+				dialer := net.Dialer{
 					Control: func(network, address string, c syscall.RawConn) error {
 						return netproxy.SoMarkControl(c, mark)
 					},
-					Resolver: d.createResolver(mark, fallback),
+					Resolver: resolver,
 				}
-				return d.DialContext(ctx, network, address)
+				return dialer.DialContext(ctx, network, address)
 			},
 		}}, nil
 	}
@@ -174,16 +206,18 @@ func (d *directDialer) dialTcp(ctx context.Context, addr string, mark int, mptcp
 			})
 		}()
 	}
-	var dialer *net.Dialer
+	var dialer net.Dialer
 	if mptcp {
-		dialer = d.tcpDialerMptcp
+		dialer = *d.tcpDialerMptcp
 	} else {
-		dialer = d.tcpDialer
+		dialer = *d.tcpDialer
 	}
 	if mark != 0 {
 		dialer.Control = func(network, address string, c syscall.RawConn) error {
 			return netproxy.SoMarkControl(c, mark)
 		}
+	} else {
+		dialer.Control = nil
 	}
 	dialer.Resolver = d.createResolver(mark, fallback)
 	return dialer.DialContext(ctx, "tcp", addr)

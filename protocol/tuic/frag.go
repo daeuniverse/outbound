@@ -4,7 +4,7 @@ import (
 	"net/netip"
 
 	"github.com/daeuniverse/outbound/pool/bytes"
-	"github.com/daeuniverse/quic-go"
+	"github.com/olicesx/quic-go"
 )
 
 func fragWriteNative(quicConn quic.Connection, packet *Packet, buf *bytes.Buffer, fragSize int) (err error) {

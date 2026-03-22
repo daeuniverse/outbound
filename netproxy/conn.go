@@ -7,7 +7,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/daeuniverse/quic-go"
+	"github.com/olicesx/quic-go"
 )
 
 var UnsupportedTunnelTypeError = net.UnknownNetworkError("unsupported tunnel type")
@@ -41,6 +41,13 @@ type FakeNetConn struct {
 	Conn
 	LAddr net.Addr
 	RAddr net.Addr
+}
+
+func (conn *FakeNetConn) UnderlyingConn() net.Conn {
+	if underlying, ok := conn.Conn.(net.Conn); ok {
+		return underlying
+	}
+	return nil
 }
 
 func (conn *FakeNetConn) LocalAddr() net.Addr {

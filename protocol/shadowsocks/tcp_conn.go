@@ -26,7 +26,11 @@ const (
 )
 
 var (
-	ErrFailInitCipher = fmt.Errorf("fail to initiate cipher")
+	ErrFailInitCipher     = fmt.Errorf("fail to initiate cipher")
+	ShadowsocksReusedInfo = []byte("ss-subkey")
+
+	fnv32aPool = sync.Pool{New: func() any { return fnv.New32a() }}
+	fnv32Pool  = sync.Pool{New: func() any { return fnv.New32() }}
 )
 
 type TCPConn struct {
@@ -70,7 +74,7 @@ func NewTCPConn(conn netproxy.Conn, metadata protocol.Metadata, masterKey []byte
 	if conf.NewCipher == nil {
 		return nil, fmt.Errorf("invalid CipherConf")
 	}
-	sg, err := GetSaltGenerator(masterKey, conf.SaltLen)
+	sg, err := NewRandomSaltGenerator(conf.SaltLen)
 	if err != nil {
 		return nil, err
 	}
@@ -118,14 +122,13 @@ func (c *TCPConn) Read(b []byte) (n int, err error) {
 				return
 			}
 		}
-		//log.Warn("salt: %v", hex.EncodeToString(salt))
-		subKey := pool.Get(c.cipherConf.KeyLen)
-		defer pool.Put(subKey)
+		subKey := getSubKey(c.cipherConf.KeyLen)
+		defer putSubKey(subKey)
 		kdf := hkdf.New(
 			sha1.New,
 			c.masterKey,
 			salt,
-			ciphers.ShadowsocksReusedInfo,
+			ShadowsocksReusedInfo,
 		)
 		_, err = io.ReadFull(kdf, subKey)
 		if err != nil {
@@ -166,13 +169,11 @@ func (c *TCPConn) Read(b []byte) (n int, err error) {
 func (c *TCPConn) readChunkFromPool() ([]byte, error) {
 	bufLen := pool.Get(2 + c.cipherConf.TagLen)
 	defer pool.Put(bufLen)
-	//log.Warn("len(bufLen): %v, c.nonceRead: %v", len(bufLen), c.nonceRead)
 	if _, err := io.ReadFull(c.Conn, bufLen); err != nil {
 		return nil, err
 	}
 	bLenPayload, err := c.cipherRead.Open(bufLen[:0], c.nonceRead, bufLen, nil)
 	if err != nil {
-		//log.Warn("read length of payload: %v: %v", protocol.ErrFailAuth, err)
 		return nil, protocol.ErrFailAuth
 	}
 	common.BytesIncLittleEndian(c.nonceRead)
@@ -183,7 +184,6 @@ func (c *TCPConn) readChunkFromPool() ([]byte, error) {
 	}
 	payload, err := c.cipherRead.Open(bufPayload[:0], c.nonceRead, bufPayload, nil)
 	if err != nil {
-		//log.Warn("read payload: %v: %v", protocol.ErrFailAuth, err)
 		return nil, protocol.ErrFailAuth
 	}
 	common.BytesIncLittleEndian(c.nonceRead)
@@ -216,13 +216,13 @@ func (c *TCPConn) initWriteFromPool(b []byte) (buf []byte, offset int, toWrite [
 	salt := c.sg.Get()
 	copy(buf, salt)
 	pool.Put(salt)
-	subKey := pool.Get(c.cipherConf.KeyLen)
-	defer pool.Put(subKey)
+	subKey := getSubKey(c.cipherConf.KeyLen)
+	defer putSubKey(subKey)
 	kdf := hkdf.New(
 		sha1.New,
 		c.masterKey,
 		buf[:c.cipherConf.SaltLen],
-		ciphers.ShadowsocksReusedInfo,
+		ShadowsocksReusedInfo,
 	)
 	_, err = io.ReadFull(kdf, subKey)
 	if err != nil {
@@ -240,7 +240,6 @@ func (c *TCPConn) initWriteFromPool(b []byte) (buf []byte, offset int, toWrite [
 	if c.bloom != nil {
 		c.bloom.ExistOrAdd(buf[:c.cipherConf.SaltLen])
 	}
-	//log.Trace("salt(%p): %v", &b, hex.EncodeToString(buf[:c.cipherConf.SaltLen]))
 	return buf, offset, toWrite, nil
 }
 
@@ -267,7 +266,6 @@ func (c *TCPConn) Write(b []byte) (n int, err error) {
 		return 0, fmt.Errorf("%v: %w", ErrFailInitCipher, err)
 	}
 	c.seal(buf[offset:], toPack)
-	//log.Trace("to write(%p): %v", &b, hex.EncodeToString(buf[:c.cipherConf.SaltLen]))
 	_, err = c.Conn.Write(buf)
 	if err != nil {
 		return 0, err
@@ -335,10 +333,13 @@ func CalcPaddingLen(masterKey []byte, bodyWithoutAddr []byte, req bool) (length 
 	}
 	var h hash.Hash32
 	if req {
-		h = fnv.New32a()
+		h = fnv32aPool.Get().(hash.Hash32)
+		defer fnv32aPool.Put(h)
 	} else {
-		h = fnv.New32()
+		h = fnv32Pool.Get().(hash.Hash32)
+		defer fnv32Pool.Put(h)
 	}
+	h.Reset()
 	h.Write(masterKey)
 	h.Write(bodyWithoutAddr)
 	return int(h.Sum32()) % maxPadding

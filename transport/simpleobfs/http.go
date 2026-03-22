@@ -92,7 +92,6 @@ func (ho *HTTPObfs) Write(b []byte) (int, error) {
 	return ho.Conn.Write(b)
 }
 
-// NewHTTPObfs return a HTTPObfs
 func NewHTTPObfs(conn netproxy.Conn, host string, port string, path string) netproxy.Conn {
 	if !strings.HasPrefix(path, "/") {
 		path = "/" + path

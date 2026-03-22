@@ -23,6 +23,33 @@ func (b BufferedConn) Peek(n int) ([]byte, error) {
 	return b.r.Peek(n)
 }
 
+func (b BufferedConn) UnderlyingConn() net.Conn {
+	return b.Conn
+}
+
+// TakeRelayPrefix returns currently buffered bytes and marks them consumed so
+// relay can flush the prefix directly before continuing normal reads.
+//
+// The returned slice is only safe for immediate synchronous use before the
+// next BufferedConn read.
+func (b *BufferedConn) TakeRelayPrefix() []byte {
+	if b == nil || b.r == nil {
+		return nil
+	}
+	n := b.r.Buffered()
+	if n == 0 {
+		return nil
+	}
+	prefix, err := b.r.Peek(n)
+	if err != nil || len(prefix) == 0 {
+		return nil
+	}
+	if _, err := b.r.Discard(len(prefix)); err != nil {
+		return nil
+	}
+	return prefix
+}
+
 func (b BufferedConn) Close() error {
 	b.r.Put()
 	return b.Conn.Close()

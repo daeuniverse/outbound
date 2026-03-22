@@ -25,15 +25,12 @@ func (c *Conn) ReadFrom(p []byte) (n int, addr netip.AddrPort, err error) {
 		copy(p, buf[addrLen:n])
 		return n - addrLen, address, err
 	} else {
-		if !c.dialTgtAddrPort.IsValid() {
-			tgt, err := net.ResolveUDPAddr("udp", c.dialTgt)
-			if err != nil {
-				return 0, netip.AddrPort{}, err
-			}
-			c.dialTgtAddrPort = tgt.AddrPort()
+		tgt, err := c.dialTargetAddrPort()
+		if err != nil {
+			return 0, netip.AddrPort{}, err
 		}
 		copy(p, buf[:n])
-		return n, c.dialTgtAddrPort, err
+		return n, tgt, err
 	}
 }
 

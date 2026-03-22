@@ -112,7 +112,6 @@ func (to *TLSObfs) write(b []byte) (int, error) {
 	return len(b), err
 }
 
-// NewTLSObfs return a SimpleObfs
 func NewTLSObfs(conn netproxy.Conn, server string) netproxy.Conn {
 	return &TLSObfs{
 		Conn:          conn,

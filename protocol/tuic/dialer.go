@@ -9,8 +9,8 @@ import (
 	"github.com/daeuniverse/outbound/netproxy"
 	"github.com/daeuniverse/outbound/protocol"
 	"github.com/daeuniverse/outbound/protocol/tuic/common"
-	"github.com/daeuniverse/quic-go"
 	"github.com/google/uuid"
+	"github.com/olicesx/quic-go"
 )
 
 func init() {
@@ -21,6 +21,7 @@ type Dialer struct {
 	clientRing *clientRing
 
 	proxyAddress string
+	proxyUDPAddr *net.UDPAddr
 	nextDialer   netproxy.Dialer
 	metadata     protocol.Metadata
 }
@@ -40,6 +41,10 @@ func NewDialer(nextDialer netproxy.Dialer, header protocol.Header) (netproxy.Dia
 	if header.Flags&protocol.Flags_Tuic_UdpRelayModeQuic > 0 {
 		// FIXME: QUIC has severe performance problems.
 		// udpRelayMode = common.QUIC
+	}
+	proxyUDPAddr, err := net.ResolveUDPAddr("udp", header.ProxyAddress)
+	if err != nil {
+		return nil, err
 	}
 	return &Dialer{
 		clientRing: newClientRing(func(capabilityCallback func(n int64)) *clientImpl {
@@ -69,21 +74,10 @@ func NewDialer(nextDialer netproxy.Dialer, header protocol.Header) (netproxy.Dia
 			}
 		}, 10),
 		proxyAddress: header.ProxyAddress,
+		proxyUDPAddr: proxyUDPAddr,
 		nextDialer:   nextDialer,
 		metadata:     metadata,
 	}, nil
-}
-
-func (d *Dialer) DialTcp(ctx context.Context, addr string) (c netproxy.Conn, err error) {
-	return d.DialContext(ctx, "tcp", addr)
-}
-
-func (d *Dialer) DialUdp(ctx context.Context, addr string) (c netproxy.PacketConn, err error) {
-	pktConn, err := d.DialContext(ctx, "udp", addr)
-	if err != nil {
-		return nil, err
-	}
-	return pktConn.(netproxy.PacketConn), nil
 }
 
 func (d *Dialer) dialFuncFactory(udpNetwork string, rAddr net.Addr) common.DialFunc {
@@ -114,10 +108,6 @@ func (d *Dialer) DialContext(ctx context.Context, network string, addr string) (
 			return nil, err
 		}
 		mdata.IsClient = d.metadata.IsClient
-		proxyAddr, err := net.ResolveUDPAddr("udp", d.proxyAddress)
-		if err != nil {
-			return nil, err
-		}
 		udpNetwork := network
 		if magicNetwork.Network == "tcp" {
 			udpNetwork = netproxy.MagicNetwork{
@@ -125,7 +115,7 @@ func (d *Dialer) DialContext(ctx context.Context, network string, addr string) (
 				Mark:    magicNetwork.Mark,
 			}.Encode()
 			tcpConn, err := d.clientRing.DialContextWithDialer(ctx, &mdata, d.nextDialer,
-				d.dialFuncFactory(udpNetwork, proxyAddr),
+				d.dialFuncFactory(udpNetwork, d.proxyUDPAddr),
 			)
 			if err != nil {
 				return nil, err
@@ -133,7 +123,7 @@ func (d *Dialer) DialContext(ctx context.Context, network string, addr string) (
 			return tcpConn, nil
 		} else {
 			udpConn, err := d.clientRing.ListenPacketWithDialer(ctx, &mdata, d.nextDialer,
-				d.dialFuncFactory(udpNetwork, proxyAddr),
+				d.dialFuncFactory(udpNetwork, d.proxyUDPAddr),
 			)
 			if err != nil {
 				return nil, err

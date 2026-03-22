@@ -3,6 +3,7 @@
 package socks5
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -20,15 +21,18 @@ type PktConn struct {
 	ctrlConn  netproxy.Conn // tcp control conn
 	target    string
 	proxyAddr string
+	cancel    context.CancelFunc
 }
 
 // NewPktConn returns a PktConn, the writeAddr must be *net.UDPAddr or *net.UnixAddr.
 func NewPktConn(c netproxy.PacketConn, proxyAddr string, targetAddr string, ctrlConn netproxy.Conn) *PktConn {
+	ctx, cancel := context.WithCancel(context.Background())
 	pc := &PktConn{
 		PacketConn: c,
 		target:     targetAddr,
 		proxyAddr:  proxyAddr,
 		ctrlConn:   ctrlConn,
+		cancel:     cancel,
 	}
 
 	if ctrlConn != nil {
@@ -36,6 +40,11 @@ func NewPktConn(c netproxy.PacketConn, proxyAddr string, targetAddr string, ctrl
 			buf := pool.Get(1)
 			defer pool.Put(buf)
 			for {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
 				_, err := ctrlConn.Read(buf)
 				if err, ok := err.(net.Error); ok && err.Timeout() {
 					continue
@@ -114,6 +123,9 @@ func (pc *PktConn) WriteTo(b []byte, addr string) (int, error) {
 
 // Close .
 func (pc *PktConn) Close() error {
+	if pc.cancel != nil {
+		pc.cancel()
+	}
 	if pc.ctrlConn != nil {
 		pc.ctrlConn.Close()
 	}
