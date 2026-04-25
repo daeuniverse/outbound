@@ -91,3 +91,22 @@ func TestUDP(t *testing.T) {
 	}
 	t.Log(ips)
 }
+
+func TestNewDialerDefersServerResolution(t *testing.T) {
+	for _, proxyAddress := range []string{
+		"unresolvable.invalid:443",
+		"unresolvable.invalid:20000-20010",
+	} {
+		t.Run(proxyAddress, func(t *testing.T) {
+			_, err := NewDialer(direct.SymmetricDirect, protocol.Header{
+				ProxyAddress: proxyAddress,
+				TlsConfig:    &tls.Config{ServerName: "example.com"},
+				User:         "auth",
+				IsClient:     true,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
