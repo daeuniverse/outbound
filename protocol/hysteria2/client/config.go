@@ -3,7 +3,9 @@ package client
 import (
 	"context"
 	"crypto/x509"
+	"fmt"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/daeuniverse/outbound/protocol/hysteria2/errors"
@@ -18,14 +20,15 @@ const (
 )
 
 type Config struct {
-	ConnFactory     ConnFactory
-	ServerAddr      net.Addr
-	Auth            string
-	TLSConfig       TLSConfig
-	QUICConfig      QUICConfig
-	BandwidthConfig BandwidthConfig
-	UDPHopInterval  time.Duration
-	FastOpen        bool
+	ConnFactory       ConnFactory
+	ServerAddr        net.Addr
+	Auth              string
+	TLSConfig         TLSConfig
+	QUICConfig        QUICConfig
+	BandwidthConfig   BandwidthConfig
+	ObfuscationConfig ObfuscationConfig
+	UDPHopInterval    time.Duration
+	FastOpen          bool
 
 	filled bool // whether the fields have been verified and filled
 }
@@ -72,6 +75,19 @@ func (c *Config) verifyAndFill() error {
 	} else if c.QUICConfig.KeepAlivePeriod < 2*time.Second || c.QUICConfig.KeepAlivePeriod > 60*time.Second {
 		return errors.ConfigError{Field: "QUICConfig.KeepAlivePeriod", Reason: "must be between 2s and 60s"}
 	}
+	c.ObfuscationConfig.Obfuscation = strings.ToLower(c.ObfuscationConfig.Obfuscation)
+	switch c.ObfuscationConfig.Obfuscation {
+	case "", "plain":
+	case "salamander":
+		if len(c.ObfuscationConfig.ObfuscationKey) < salamanderPSKMinLen {
+			return errors.ConfigError{
+				Field:  "ObfuscationConfig.ObfuscationKey",
+				Reason: fmt.Sprintf("must be at least %d bytes for salamander", salamanderPSKMinLen),
+			}
+		}
+	default:
+		return errors.ConfigError{Field: "ObfuscationConfig.Obfuscation", Reason: "unsupported obfuscation method"}
+	}
 	c.QUICConfig.DisablePathMTUDiscovery = c.QUICConfig.DisablePathMTUDiscovery || pmtud.DisablePathMTUDiscovery
 
 	c.filled = true
@@ -113,4 +129,9 @@ type QUICConfig struct {
 type BandwidthConfig struct {
 	MaxTx uint64
 	MaxRx uint64
+}
+
+type ObfuscationConfig struct {
+	Obfuscation    string
+	ObfuscationKey []byte
 }
