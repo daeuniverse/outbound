@@ -18,14 +18,15 @@ const (
 )
 
 type Config struct {
-	ConnFactory     ConnFactory
-	ServerAddr      net.Addr
-	Auth            string
-	TLSConfig       TLSConfig
-	QUICConfig      QUICConfig
-	BandwidthConfig BandwidthConfig
-	UDPHopInterval  time.Duration
-	FastOpen        bool
+	ConnFactory       ConnFactory
+	ServerAddr        net.Addr
+	Auth              string
+	TLSConfig         TLSConfig
+	QUICConfig        QUICConfig
+	BandwidthConfig   BandwidthConfig
+	UDPHopInterval    time.Duration
+	ObfuscationConfig ObfuscationConfig
+	FastOpen          bool
 
 	filled bool // whether the fields have been verified and filled
 }
@@ -113,4 +114,9 @@ type QUICConfig struct {
 type BandwidthConfig struct {
 	MaxTx uint64
 	MaxRx uint64
+}
+
+type ObfuscationConfig struct {
+	Obfuscation    string
+	ObfuscationKey []byte
 }

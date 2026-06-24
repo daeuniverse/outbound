@@ -63,6 +63,15 @@ func (c *clientImpl) connect(ctx context.Context) (*HandshakeInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	switch c.config.ObfuscationConfig.Obfuscation {
+	case "salamander":
+		pktConn = NewSalamanderPacketConn(pktConn, c.config.ObfuscationConfig.ObfuscationKey)
+	case "", "plain":
+	default:
+		return nil, errors.New("unknown obfuscation: " + c.config.ObfuscationConfig.Obfuscation)
+	}
+
 	// Convert config to TLS config & QUIC config
 	tlsConfig := &tls.Config{
 		ServerName:            c.config.TLSConfig.ServerName,
