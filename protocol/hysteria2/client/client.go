@@ -59,7 +59,7 @@ type clientImpl struct {
 }
 
 func (c *clientImpl) connect(ctx context.Context) (*HandshakeInfo, error) {
-	pktConn, err := c.config.ConnFactory.New(ctx)
+	pktConn, serverAddr, err := c.config.ConnFactory.New(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +86,7 @@ func (c *clientImpl) connect(ctx context.Context) (*HandshakeInfo, error) {
 		TLSClientConfig: tlsConfig,
 		QUICConfig:      quicConfig,
 		Dial: func(ctx context.Context, _ string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlyConnection, error) {
-			qc, err := quic.DialEarly(ctx, pktConn, c.config.ServerAddr, tlsCfg, cfg)
+			qc, err := quic.DialEarly(ctx, pktConn, serverAddr, tlsCfg, cfg)
 			if err != nil {
 				return nil, err
 			}

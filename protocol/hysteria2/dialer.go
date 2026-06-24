@@ -56,19 +56,13 @@ func NewDialer(nextDialer netproxy.Dialer, header protocol.Header) (netproxy.Dia
 		config.UDPHopInterval = feature.(*Feature1).UDPHopInterval
 	}
 
-	var err error
-	if !isPortHoppingPort(port) {
-		config.ServerAddr, err = net.ResolveUDPAddr("udp", hostPort)
-	} else {
-		config.ServerAddr, err = udphop.ResolveUDPHopAddr(hostPort)
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	if config.ServerAddr.Network() == "udphop" {
+	if isPortHoppingPort(port) {
 		config.ConnFactory = &client.UdpConnFactory{
-			NewFunc: func(ctx context.Context) (net.PacketConn, error) {
+			NewFunc: func(ctx context.Context) (net.PacketConn, net.Addr, error) {
+				serverAddr, err := udphop.ResolveUDPHopAddr(hostPort)
+				if err != nil {
+					return nil, nil, err
+				}
 				dialFunc := func(addr net.Addr) (net.PacketConn, error) {
 					conn, err := nextDialer.DialContext(ctx, "udp", addr.String())
 					if err != nil {
@@ -80,21 +74,29 @@ func NewDialer(nextDialer netproxy.Dialer, header protocol.Header) (netproxy.Dia
 						addr,
 					), nil
 				}
-				return udphop.NewUDPHopPacketConn(config.ServerAddr.(*udphop.UDPHopAddr), config.UDPHopInterval, dialFunc)
+				conn, err := udphop.NewUDPHopPacketConn(serverAddr, config.UDPHopInterval, dialFunc)
+				if err != nil {
+					return nil, nil, err
+				}
+				return conn, serverAddr, nil
 			},
 		}
 	} else {
 		config.ConnFactory = &client.UdpConnFactory{
-			NewFunc: func(ctx context.Context) (net.PacketConn, error) {
-				conn, err := nextDialer.DialContext(ctx, "udp", config.ServerAddr.String())
+			NewFunc: func(ctx context.Context) (net.PacketConn, net.Addr, error) {
+				serverAddr, err := net.ResolveUDPAddr("udp", hostPort)
 				if err != nil {
-					return nil, err
+					return nil, nil, err
+				}
+				conn, err := nextDialer.DialContext(ctx, "udp", serverAddr.String())
+				if err != nil {
+					return nil, nil, err
 				}
 				return netproxy.NewFakeNetPacketConn(
 					conn.(netproxy.PacketConn),
 					net.UDPAddrFromAddrPort(common.GetUniqueFakeAddrPort()),
-					config.ServerAddr,
-				), nil
+					serverAddr,
+				), serverAddr, nil
 			},
 		}
 	}

@@ -19,7 +19,6 @@ const (
 
 type Config struct {
 	ConnFactory     ConnFactory
-	ServerAddr      net.Addr
 	Auth            string
 	TLSConfig       TLSConfig
 	QUICConfig      QUICConfig
@@ -38,9 +37,6 @@ func (c *Config) verifyAndFill() error {
 	}
 	if c.ConnFactory == nil {
 		return errors.ConfigError{Field: "ConnFactory", Reason: "must be set"}
-	}
-	if c.ServerAddr == nil {
-		return errors.ConfigError{Field: "ServerAddr", Reason: "must be set"}
 	}
 	if c.QUICConfig.InitialStreamReceiveWindow == 0 {
 		c.QUICConfig.InitialStreamReceiveWindow = defaultStreamReceiveWindow
@@ -79,14 +75,14 @@ func (c *Config) verifyAndFill() error {
 }
 
 type ConnFactory interface {
-	New(context.Context) (net.PacketConn, error)
+	New(context.Context) (net.PacketConn, net.Addr, error)
 }
 
 type UdpConnFactory struct {
-	NewFunc func(ctx context.Context) (net.PacketConn, error)
+	NewFunc func(ctx context.Context) (net.PacketConn, net.Addr, error)
 }
 
-func (f *UdpConnFactory) New(ctx context.Context) (net.PacketConn, error) {
+func (f *UdpConnFactory) New(ctx context.Context) (net.PacketConn, net.Addr, error) {
 	return f.NewFunc(ctx)
 }
 

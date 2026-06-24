@@ -19,7 +19,7 @@ type ExtraOption struct {
 	UtlsImitate         string
 	BandwidthMaxTx      string
 	BandwidthMaxRx      string
-	UDPHopInterval    time.Duration
+	UDPHopInterval      time.Duration
 }
 
 type Property struct {
