@@ -207,11 +207,13 @@ func (s *session) run() error {
 func (s *session) Close() error {
 	if s.closed.CompareAndSwap(false, true) {
 		s.streamLock.Lock()
-		defer s.streamLock.Unlock()
-		for i := range s.streams {
-			s.streams[i].Close()
-		}
+		streams := s.streams
 		s.streams = make(map[uint32]*stream)
+		s.streamLock.Unlock()
+
+		for _, stream := range streams {
+			stream.Close()
+		}
 		return s.conn.Close()
 	}
 	return nil
