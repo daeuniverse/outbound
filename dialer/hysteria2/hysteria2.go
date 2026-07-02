@@ -28,6 +28,8 @@ type Hysteria2 struct {
 	User      string
 	Password  string
 	Server    string
+	Obfs      string
+	ObfsPass  string
 	Insecure  bool
 	Sni       string
 	PinSHA256 string
@@ -81,6 +83,12 @@ func (s *Hysteria2) Dialer(option *dialer.ExtraOption, nextDialer netproxy.Diale
 			}
 		}
 	}
+	if s.Obfs != "" {
+		feature1.ObfuscationConfig = client.ObfuscationConfig{
+			Obfuscation:    s.Obfs,
+			ObfuscationKey: []byte(s.ObfsPass),
+		}
+	}
 	header.Feature1 = feature1
 
 	if s.PinSHA256 != "" {
@@ -120,7 +128,6 @@ func normalizeCertHash(hash string) string {
 
 // ref: https://v2.hysteria.network/zh/docs/developers/URI-Scheme/
 func ParseHysteria2URL(link string) (*Hysteria2, error) {
-	// TODO: support salamander obfuscation
 	u, err := url.Parse(link)
 	if err != nil {
 		return nil, err
@@ -148,6 +155,8 @@ func ParseHysteria2URL(link string) (*Hysteria2, error) {
 		Name:      u.Fragment,
 		User:      u.User.Username(),
 		Server:    u.Host,
+		Obfs:      strings.ToLower(q.Get("obfs")),
+		ObfsPass:  q.Get("obfs-password"),
 		Insecure:  insecure,
 		Sni:       q.Get("sni"),
 		PinSHA256: q.Get("pinSHA256"),
@@ -177,6 +186,12 @@ func (s *Hysteria2) ExportToURL() string {
 	}
 	if s.PinSHA256 != "" {
 		q.Set("pinSHA256", s.PinSHA256)
+	}
+	if s.Obfs != "" {
+		q.Set("obfs", s.Obfs)
+	}
+	if s.ObfsPass != "" {
+		q.Set("obfs-password", s.ObfsPass)
 	}
 	if s.MaxTx > 0 && s.MaxRx > 0 {
 		q.Set("maxTx", strconv.FormatUint(s.MaxTx, 10))
