@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/daeuniverse/outbound/netproxy"
 	"github.com/daeuniverse/outbound/protocol/trojanc"
@@ -21,8 +22,7 @@ type clientRing struct {
 }
 
 type clientRingNode struct {
-	// capability is protected by quic RWMutex.
-	capability int64
+	capability atomic.Int64
 	cli        *clientImpl
 }
 
@@ -42,7 +42,7 @@ func (r *clientRing) DialContext(ctx context.Context, metadata *trojanc.Metadata
 	defer r.mu.Unlock()
 	newCurrent := r.current
 	err = r._tryNext(&newCurrent, func(node *clientRingNode) error {
-		cap := node.capability
+		cap := node.capability.Load()
 		if cap != -1 && cap <= r.reserved {
 			return common.ErrHoldOn
 		}
@@ -58,7 +58,7 @@ func (r *clientRing) DialAuth(ctx context.Context, metadata *trojanc.Metadata, d
 	defer r.mu.Unlock()
 	newCurrent := r.current
 	err = r._tryNext(&newCurrent, func(node *clientRingNode) error {
-		cap := node.capability
+		cap := node.capability.Load()
 		if cap != -1 && cap <= r.reserved {
 			return common.ErrHoldOn
 		}
@@ -102,11 +102,9 @@ func (r *clientRing) _tryNext(current **list.Element, f func(cli *clientRingNode
 	return r._tryNext(current, f)
 
 getNew:
-	newNode := &clientRingNode{
-		cli:        nil,
-		capability: -1,
-	}
-	newCli := r.newClient(func(n int64) { newNode.capability = n })
+	newNode := &clientRingNode{}
+	newNode.capability.Store(-1)
+	newCli := r.newClient(newNode.capability.Store)
 	newNode.cli = newCli
 	r.current = r._insertAfterCurrent(newNode)
 	*current = r.current

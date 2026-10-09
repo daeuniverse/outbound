@@ -34,7 +34,7 @@ func CompleteMetadataFromReader(m *Metadata, first4 []byte, r io.Reader) (err er
 		if _, err = io.ReadFull(r, buf[:1]); err != nil {
 			return err
 		}
-		if _, err = io.ReadFull(r, buf[1:buf[0]]); err != nil {
+		if _, err = io.ReadFull(r, buf[1:1+int(buf[0])]); err != nil {
 			return err
 		}
 		m.Hostname = string(buf[1 : 1+int(buf[0])])

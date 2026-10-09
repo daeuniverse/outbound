@@ -516,7 +516,7 @@ func ReadAddress(reader BufferedReader) (c *Address, err error) {
 		if err != nil {
 			return
 		}
-		_c.ADDR = make([]byte, addrLen+1)
+		_c.ADDR = make([]byte, int(addrLen)+1)
 		_c.ADDR[0] = addrLen
 		_, err = io.ReadFull(reader, _c.ADDR[1:])
 		if err != nil {

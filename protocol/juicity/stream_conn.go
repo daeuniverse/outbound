@@ -16,9 +16,10 @@ type Conn struct {
 	quic.Stream
 	Metadata *trojanc.Metadata
 
-	writeMutex sync.Mutex
-	onceWrite  bool
-	onceRead   sync.Once
+	writeMutex    sync.Mutex
+	onceWrite     bool
+	onceRead      sync.Once
+	readHeaderErr error
 
 	closeDeferFn func()
 
@@ -72,11 +73,12 @@ func (c *Conn) Write(b []byte) (n int, err error) {
 func (c *Conn) Read(b []byte) (n int, err error) {
 	c.onceRead.Do(func() {
 		if !c.Metadata.IsClient {
-			if err = c.readReqHeader(); err != nil {
-				return
-			}
+			c.readHeaderErr = c.readReqHeader()
 		}
 	})
+	if c.readHeaderErr != nil {
+		return 0, c.readHeaderErr
+	}
 	return c.Stream.Read(b)
 }
 

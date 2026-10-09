@@ -78,7 +78,7 @@ func (m *Metadata) Len() int {
 	case protocol.MetadataTypeIPv6:
 		return 3 + 16
 	case protocol.MetadataTypeDomain:
-		return 4 + len([]byte(m.Hostname))
+		return 4 + min(len(m.Hostname), 255)
 	case protocol.MetadataTypeMsg:
 		return 2
 	default:
@@ -86,6 +86,7 @@ func (m *Metadata) Len() int {
 	}
 }
 
+// PackTo encodes at most the first 255 bytes of a domain hostname.
 func (m *Metadata) PackTo(dst []byte) (n int) {
 	dst[0] = MetadataTypeToByte(m.Type)
 	switch m.Type {
@@ -98,10 +99,11 @@ func (m *Metadata) PackTo(dst []byte) (n int) {
 		binary.BigEndian.PutUint16(dst[17:], m.Port)
 		return 19
 	case protocol.MetadataTypeDomain:
-		dst[1] = byte(len([]byte(m.Hostname)))
-		copy(dst[2:], m.Hostname)
-		binary.BigEndian.PutUint16(dst[2+dst[1]:], m.Port)
-		return 4 + int(dst[1])
+		length := min(len(m.Hostname), 255)
+		dst[1] = byte(length)
+		copy(dst[2:2+length], m.Hostname)
+		binary.BigEndian.PutUint16(dst[2+length:], m.Port)
+		return 4 + length
 	case protocol.MetadataTypeMsg:
 		dst[1] = byte(m.Cmd)
 		return 2
@@ -111,7 +113,7 @@ func (m *Metadata) PackTo(dst []byte) (n int) {
 }
 
 func (m *Metadata) Unpack(r io.Reader) (n int, err error) {
-	buf := pool.Get(256)
+	buf := pool.Get(4 + 255)
 	defer buf.Put()
 	if _, err = io.ReadFull(r, buf[:2]); err != nil {
 		return 0, err
@@ -133,12 +135,13 @@ func (m *Metadata) Unpack(r io.Reader) (n int, err error) {
 		m.Port = binary.BigEndian.Uint16(buf[17:])
 		return 19, nil
 	case protocol.MetadataTypeDomain:
-		if _, err = io.ReadFull(r, buf[2:4+int(buf[1])]); err != nil {
+		length := int(buf[1])
+		if _, err = io.ReadFull(r, buf[2:4+length]); err != nil {
 			return 0, err
 		}
-		m.Hostname = string(buf[2 : 2+buf[1]])
-		m.Port = binary.BigEndian.Uint16(buf[2+buf[1]:])
-		return 4 + int(buf[1]), nil
+		m.Hostname = string(buf[2 : 2+length])
+		m.Port = binary.BigEndian.Uint16(buf[2+length:])
+		return 4 + length, nil
 	case protocol.MetadataTypeMsg:
 		m.Cmd = protocol.MetadataCmd(buf[1])
 		return 2, nil

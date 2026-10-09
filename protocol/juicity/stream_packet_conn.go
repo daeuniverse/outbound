@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/netip"
 	"strconv"
@@ -52,12 +53,19 @@ func (c *PacketConn) ReadFrom(p []byte) (n int, addrPort netip.AddrPort, err err
 		if n, err = io.ReadFull(c.Conn, p); err != nil {
 			return 0, netip.AddrPort{}, err
 		}
-		_, _ = io.CopyN(io.Discard, c.Conn, int64(length-len(p)))
+		// Drop the excess so the next frame stays aligned. Like
+		// net.UDPConn, a datagram larger than p is truncated without error.
+		if _, err = io.CopyN(io.Discard, c.Conn, int64(length-len(p))); err != nil {
+			return n, addrPort, err
+		}
 		return n, addrPort, nil
 	}
 }
 
 func (c *PacketConn) WriteTo(p []byte, addr string) (n int, err error) {
+	if len(p) > math.MaxUint16 {
+		return 0, fmt.Errorf("UDP datagram too large: %d > %d", len(p), math.MaxUint16)
+	}
 	_metadata, err := protocol.ParseMetadata(addr)
 	if err != nil {
 		return 0, err
